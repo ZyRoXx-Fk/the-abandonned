@@ -1,30 +1,30 @@
-# Authentification client / business
+# Client / business authentication
 
-## Modèle
+## Model
 
-Les deux profils de l’interface correspondent aux modèles existants du backend :
+The two interface profiles map to the existing backend models:
 
-- **Client** → `Client`, rôle JWT `client`.
-- **Business** → `Owner`, rôle JWT `owner`.
+- **Client** → `Client`, JWT role `client`.
+- **Business** → `Owner`, JWT role `owner`.
 
-Une inscription business crée le compte personnel du propriétaire, pas un document `Business`. La configuration de l’établissement reste un parcours séparé, notamment via les outils MCP existants. Les deux inscriptions demandent `firstName`, `lastName`, `email` et `password`.
+Business registration creates the owner’s personal account, not a `Business` document. Setting up the business remains a separate workflow, notably through the existing MCP tools. Both registration flows require `firstName`, `lastName`, `email`, and `password`.
 
 ## Routes
 
-Toutes les routes sont sous `/api/auth`.
+All routes are under `/api/auth`.
 
-| Méthode | Chemin | Fonction |
+| Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/clients/register` | Inscrire un client et ouvrir sa session (201) |
-| POST | `/owners/register` | Inscrire un propriétaire et ouvrir sa session (201) |
-| POST | `/clients/login` | Connecter uniquement un client (200) |
-| POST | `/owners/login` | Connecter uniquement un propriétaire (200) |
-| POST | `/login` | Ancienne connexion commune, conservée pour compatibilité (200) |
-| GET | `/me` | Retourner le profil authentifié (200) |
-| POST | `/logout` | Effacer le cookie de session, même si la session est expirée (204) |
-| PUT | `/clients/preferences` | Modifier les préférences d’un client authentifié (200) |
+| POST | `/clients/register` | Register a client and start their session (201) |
+| POST | `/owners/register` | Register an owner and start their session (201) |
+| POST | `/clients/login` | Log in a client only (200) |
+| POST | `/owners/login` | Log in an owner only (200) |
+| POST | `/login` | Legacy shared login, retained for compatibility (200) |
+| GET | `/me` | Return the authenticated profile (200) |
+| POST | `/logout` | Clear the session cookie, even if the session has expired (204) |
+| PUT | `/clients/preferences` | Update an authenticated client’s preferences (200) |
 
-Inscription :
+Registration:
 
 ```json
 {
@@ -35,7 +35,7 @@ Inscription :
 }
 ```
 
-Connexion :
+Login:
 
 ```json
 {
@@ -44,72 +44,72 @@ Connexion :
 }
 ```
 
-Les réponses d’inscription / connexion conservent le contrat existant `{ token, role, user }`. `user` contient `id`, `firstName`, `lastName`, `email`, `createdAt`, et les préférences éventuelles du client. Aucun mot de passe ni hash n’est retourné. Le frontend ignore le bearer token retourné : sa session repose sur le cookie HttpOnly. `/me` retourne un profil plat `{ role, id, firstName, lastName, email, createdAt, ... }`.
+Registration / login responses preserve the existing `{ token, role, user }` contract. `user` contains `id`, `firstName`, `lastName`, `email`, `createdAt`, and any client preferences. No password or hash is returned. The frontend ignores the returned bearer token: its session relies on the HttpOnly cookie. `/me` returns a flat profile `{ role, id, firstName, lastName, email, createdAt, ... }`.
 
-Une connexion sur le mauvais type de compte retourne le même 401 que des identifiants invalides, sans ouvrir de session. La règle existante qui interdit la réutilisation d’un e-mail déjà inscrit dans l’autre profil est conservée.
+Logging in with the wrong account type returns the same 401 as invalid credentials, without starting a session. The existing rule preventing reuse of an email address already registered under the other profile is preserved.
 
-## Validation et erreurs
+## Validation and errors
 
-- Prénom et nom : valeurs nettoyées, de 1 à 120 caractères, refus des chaînes composées d’espaces.
-- E-mail : nettoyé, normalisé en minuscules et validé, 254 caractères maximum.
-- Nouveau mot de passe : 8 caractères minimum et 72 octets UTF-8 maximum pour éviter la troncature silencieuse par bcrypt. Les anciens mots de passe plus courts restent utilisables à la connexion.
-- Les mots de passe sont hachés avec bcrypt (coût 10).
-- Validation 400 : `code: VALIDATION_ERROR`, avec `details: [{ field, message }]`.
-- E-mail déjà utilisé 409 : `code: EMAIL_EXISTS`.
-- Identifiants incorrects 401 : `code: INVALID_CREDENTIALS`.
-- Origine navigateur interdite 403 : `code: ORIGIN_NOT_ALLOWED`.
-- Limite de tentatives dépassée : 429.
-- Erreur inattendue 500 : message générique, détails réservés aux logs serveur.
+- First and last name: trimmed values, 1 to 120 characters, whitespace-only strings rejected.
+- Email: trimmed, normalized to lowercase, and validated, with a maximum of 254 characters.
+- New password: at least 8 characters and at most 72 UTF-8 bytes to prevent silent truncation by bcrypt. Older, shorter passwords remain usable for login.
+- Passwords are hashed with bcrypt (cost 10).
+- Validation 400: `code: VALIDATION_ERROR`, with `details: [{ field, message }]`.
+- Email already in use 409: `code: EMAIL_EXISTS`.
+- Invalid credentials 401: `code: INVALID_CREDENTIALS`.
+- Disallowed browser origin 403: `code: ORIGIN_NOT_ALLOWED`.
+- Rate limit exceeded: 429.
+- Unexpected error 500: generic message, with details restricted to server logs.
 
-Les mutations d’authentification sont limitées à 10 tentatives par minute, par route et par adresse IP. Ce limiteur est en mémoire et adapté à une instance de démonstration ; un déploiement multi-instance demande un stockage partagé et une configuration de proxy de confiance adaptée.
+Authentication mutations are limited to 10 attempts per minute, per route and IP address. This limiter is in-memory and suitable for a demo instance; a multi-instance deployment requires shared storage and an appropriate trusted-proxy configuration.
 
-## Session et sécurité
+## Session and security
 
-Le backend émet le cookie `relay_session` avec `HttpOnly`, `SameSite=Lax`, `Path=/api`, expiration de 7 jours et `Secure` lorsque `NODE_ENV=production`. Il est limité à l’hôte de l’API, sans attribut Domain. Les réponses d’authentification utilisent `Cache-Control: no-store`.
+The backend issues the `relay_session` cookie with `HttpOnly`, `SameSite=Lax`, `Path=/api`, a 7-day expiration, and `Secure` when `NODE_ENV=production`. It is restricted to the API host, with no Domain attribute. Authentication responses use `Cache-Control: no-store`.
 
-Le middleware accepte ce cookie et conserve la compatibilité avec `Authorization: Bearer <token>` pour les clients API. Un en-tête Authorization incorrect n’est jamais remplacé silencieusement par le cookie. Les vérifications de rôle restent côté serveur.
+The middleware accepts this cookie and maintains compatibility with `Authorization: Bearer <token>` for API clients. An invalid Authorization header is never silently replaced by the cookie. Role checks remain server-side.
 
-Les origines autorisées sont définies dans `FRONTEND_URL` (liste séparée par des virgules). Le CORS autorise les credentials pour ces seules origines. Les requêtes navigateur qui modifient l’authentification ou utilisent le cookie pour une mutation protégée sont refusées si leur en-tête Origin n’est pas autorisé. Les clients non navigateur sans Origin restent utilisables.
+Allowed origins are defined in `FRONTEND_URL` (a comma-separated list). CORS allows credentials only for these origins. Browser requests that change authentication or use the cookie for a protected mutation are rejected if their Origin header is not allowed. Non-browser clients without an Origin header remain supported.
 
-**Déploiement** : frontend et API doivent utiliser HTTPS et être sur le même site (par exemple `app.example.com` et `api.example.com`, ou derrière un proxy de même origine). Les domaines racine différents ne sont pas pris en charge par le cookie SameSite=Lax. En local, garder le même nom d’hôte des deux côtés, par exemple `localhost` pour le frontend et l’API, même si les ports diffèrent.
+**Deployment**: the frontend and API must use HTTPS and belong to the same site (for example, `app.example.com` and `api.example.com`, or behind a same-origin proxy). Different root domains are not supported by the SameSite=Lax cookie. Locally, use the same hostname on both sides, for example `localhost` for both the frontend and API, even if the ports differ.
 
-La déconnexion supprime la session du navigateur. Les JWT restent stateless : un bearer token déjà copié conserve sa validité jusqu’à expiration ; il n’y a pas de liste de révocation ni de refresh token dans ce prototype.
+Logging out removes the browser session. JWTs remain stateless: a previously copied bearer token remains valid until it expires; this prototype has no revocation list or refresh token.
 
 ## Configuration
 
-Créer `code/backend/.env` depuis `.env.example`, puis renseigner une connexion MongoDB valide et un secret JWT aléatoire fort :
+Create `code/backend/.env` from `.env.example`, then set a valid MongoDB connection and a strong random JWT secret:
 
 ```dotenv
 PORT=3000
 FRONTEND_URL=http://localhost:4321,http://localhost:4322
 MONGODB_URI=mongodb://localhost:27017/relay
-JWT_SECRET=<secret-aléatoire-fort>
+JWT_SECRET=<strong-random-secret>
 ```
 
-Générer par exemple le secret avec `openssl rand -hex 32`. Ne pas versionner `.env`. L’inscription vérifie la présence de la configuration JWT avant d’écrire le compte, pour éviter une création partielle liée à un secret manquant.
+For example, generate the secret with `openssl rand -hex 32`. Do not commit `.env` to version control. Registration checks that JWT configuration is present before saving the account, to prevent partial account creation caused by a missing secret.
 
-Depuis `code/backend` :
+From `code/backend`:
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Dans `code/frontend/.env` :
+In `code/frontend/.env`:
 
 ```dotenv
 PUBLIC_API_BASE_URL=http://localhost:3000
 ```
 
-Redémarrer le frontend après modification de l’environnement. Cette variable est publique et intégrée au build ; n’y placer aucun secret. Pour un aperçu servi sur un autre port, ajouter aussi son origine à `FRONTEND_URL`.
+Restart the frontend after changing the environment. This variable is public and embedded at build time; do not put any secrets in it. For a preview served on another port, also add its origin to `FRONTEND_URL`.
 
 ## Tests
 
-Depuis `code/backend` :
+From `code/backend`:
 
 ```sh
 npm test
 npm run build
 ```
 
-Les tests utilisent Fastify `inject`, les vrais schémas Zod, bcrypt, JWT, cookies, CORS et limiteur. Seule la persistance est remplacée par des repositories en mémoire : aucune instance MongoDB et aucun secret réel ne sont nécessaires. Ils couvrent les deux profils, la compatibilité Bearer, les refus inter-profils, les sessions expirées, les doublons, la validation, les origines, la limitation de tentatives et les cookies de production. La persistance MongoDB réelle doit être vérifiée avec l’environnement du projet.
+Tests use Fastify `inject`, the actual Zod schemas, bcrypt, JWT, cookies, CORS, and rate limiter. Only persistence is replaced with in-memory repositories: no MongoDB instance or real secret is required. They cover both profiles, Bearer compatibility, cross-profile rejections, expired sessions, duplicates, validation, origins, rate limiting, and production cookies. Actual MongoDB persistence must be verified using the project environment.

@@ -5,6 +5,7 @@ scope:
   - "DEVOPS"
   - "MERGE"
   - "FRONTEND"
+  - "DOCUMENTATION"
 
 type:
   - Add: "+"
