@@ -32,8 +32,10 @@ export class McpSessionManager {
   }
 
   setSessionOwner(sessionId: string, ownerId: string): boolean {
-    const session = this.sessions.get(sessionId);
-    if (!session) return false;
+    let session = this.sessions.get(sessionId);
+    if (!session) {
+      session = this.registerSession(sessionId);
+    }
 
     session.ownerId = ownerId;
     session.lastActiveAt = new Date();
