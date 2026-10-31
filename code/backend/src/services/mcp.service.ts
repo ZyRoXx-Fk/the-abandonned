@@ -11,7 +11,10 @@ import {
   LinkOwnerSessionResultDTO,
 } from "../schemas/mcp.schema.js";
 import { auditWebsiteInputShape } from "../schemas/audit.schema.js";
-import { saveBusinessProfileInputShape } from "../schemas/business.schema.js";
+import {
+  saveBusinessProfileInputShape,
+  updateBusinessStatusInputShape,
+} from "../schemas/business.schema.js";
 import { randomUUID } from "crypto";
 import { ServerResponse, IncomingMessage } from "http";
 
@@ -175,6 +178,55 @@ export class McpService {
               {
                 type: "text",
                 text: error?.message || "Error saving business profile",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      "update_business_status",
+      "Updates the live real-time status of a restaurant (terrace open/closed, available seats right now, weather or dynamic alerts).",
+      updateBusinessStatusInputShape,
+      async (args, extra) => {
+        try {
+          const effectiveSessionId = args.sessionId || extra.sessionId;
+          let ownerId: string | null = null;
+
+          if (effectiveSessionId) {
+            const session = this.sessionManager.getSession(effectiveSessionId);
+            ownerId = session?.ownerId || null;
+          }
+
+          if (!ownerId) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: "Authentication required: This session is not linked to an owner account. Please first link your session using the 'link_owner_session' tool with the pairing token generated from your web dashboard (e.g. TRUST-XXXXXX), or register as a civil entity at http://localhost:4321.",
+                },
+              ],
+            };
+          }
+
+          const result = await this.businessSvc.updateBusinessStatus(ownerId, args);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error: any) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: error?.message || "Error updating business live status",
               },
             ],
           };

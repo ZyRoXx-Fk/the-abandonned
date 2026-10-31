@@ -8,9 +8,12 @@ import { ownerRepository, OwnerRepository } from "../repositories/owner.reposito
 import {
   SaveBusinessProfileDTO,
   SaveBusinessProfileResultDTO,
+  UpdateBusinessStatusDTO,
+  UpdateBusinessStatusResultDTO,
 } from "../schemas/business.schema.js";
-import { NotFound, Forbidden } from "../utils/errors/http.error.js";
+import { NotFound, Forbidden, BadRequest } from "../utils/errors/http.error.js";
 import { IBusiness } from "../models/business.model.js";
+import { IRealtimeStatus } from "../models/realtime-status.model.js";
 
 export class BusinessService {
   constructor(
@@ -104,6 +107,94 @@ export class BusinessService {
         },
       },
       message: `Restaurant '${business.name}' certified and registered with 'trusted' status. Real-time availability stream initialized (${realtime.availableSeats} seats, terrace: ${realtime.isTerraceOpen ? "open" : "closed"}).`,
+    };
+  }
+
+  async updateBusinessStatus(
+    ownerId: string,
+    dto: UpdateBusinessStatusDTO
+  ): Promise<UpdateBusinessStatusResultDTO> {
+    const owner = await this.ownerRepo.findById(ownerId);
+    if (!owner) {
+      throw new NotFound("Owner account not found. Please log in or register.");
+    }
+
+    let business: IBusiness | null = null;
+
+    if (dto.businessId) {
+      const found = await this.businessRepo.findById(dto.businessId);
+      if (!found) {
+        throw new NotFound(`Restaurant with ID '${dto.businessId}' not found.`);
+      }
+      if (found.ownerId.toString() !== ownerId) {
+        throw new Forbidden("You do not have permission to modify this restaurant.");
+      }
+      business = found;
+    } else if (dto.businessName) {
+      business = await this.businessRepo.findByNameAndOwnerId(dto.businessName, ownerId);
+      if (!business) {
+        throw new NotFound(
+          `No restaurant named '${dto.businessName}' found under your owner account.`
+        );
+      }
+    } else {
+      const ownerBusinesses = await this.businessRepo.findAllByOwnerId(ownerId);
+      if (ownerBusinesses.length === 0) {
+        throw new NotFound(
+          "No registered restaurant found for your owner account. Please register one first with 'save_business_profile'."
+        );
+      }
+      if (ownerBusinesses.length > 1) {
+        throw new BadRequest(
+          `You have ${ownerBusinesses.length} registered restaurants. Please specify which restaurant to update using 'businessName' or 'businessId'.`
+        );
+      }
+      business = ownerBusinesses[0];
+    }
+
+    const updatePayload: Partial<IRealtimeStatus> = {};
+    const changeLog: string[] = [];
+
+    if (dto.isTerraceOpen !== undefined) {
+      updatePayload.isTerraceOpen = dto.isTerraceOpen;
+      changeLog.push(`Terrace: ${dto.isTerraceOpen ? "OPEN" : "CLOSED"}`);
+    }
+    if (dto.availableSeats !== undefined) {
+      updatePayload.availableSeats = dto.availableSeats;
+      changeLog.push(`Available seats: ${dto.availableSeats}`);
+    }
+    if (dto.activeAlert !== undefined) {
+      updatePayload.activeAlert = dto.activeAlert.trim();
+      changeLog.push(
+        dto.activeAlert.trim() ? `Active alert: "${dto.activeAlert.trim()}"` : "Alert cleared"
+      );
+    }
+
+    if (changeLog.length === 0) {
+      throw new BadRequest(
+        "No status update provided. Please specify isTerraceOpen, availableSeats, or activeAlert."
+      );
+    }
+
+    const updatedRealtime = await this.realtimeRepo.upsertByBusinessId(
+      business._id.toString(),
+      updatePayload
+    );
+
+    return {
+      success: true,
+      business: {
+        id: business._id.toString(),
+        name: business.name,
+        trustStatus: business.trustStatus,
+      },
+      realtimeStatus: {
+        isTerraceOpen: updatedRealtime.isTerraceOpen,
+        availableSeats: updatedRealtime.availableSeats,
+        activeAlert: updatedRealtime.activeAlert || "",
+        lastUpdated: updatedRealtime.lastUpdated.toISOString(),
+      },
+      message: `Live status for '${business.name}' successfully updated: ${changeLog.join(" | ")}. Timestamp: ${updatedRealtime.lastUpdated.toISOString()}.`,
     };
   }
 

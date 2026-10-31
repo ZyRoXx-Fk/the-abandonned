@@ -72,3 +72,52 @@ export interface SaveBusinessProfileResultDTO {
   };
   message: string;
 }
+
+export const updateBusinessStatusInputShape = {
+  businessId: z
+    .string()
+    .optional()
+    .describe("ID of the restaurant to update (optional if businessName is provided or owner has only one restaurant)"),
+  businessName: z
+    .string()
+    .optional()
+    .describe("Name of the restaurant to update (e.g. 'Brasserie des Bâlois')"),
+  isTerraceOpen: z
+    .boolean()
+    .optional()
+    .describe("Whether the outdoor terrace is currently open (e.g. false if raining, true if open)"),
+  availableSeats: z
+    .number()
+    .min(0, "Available seats cannot be negative")
+    .optional()
+    .describe("Current number of available seats right now"),
+  activeAlert: z
+    .string()
+    .optional()
+    .describe("Real-time alert or announcement (e.g. 'Terrace closed due to rain', 'Live jazz tonight', or '' to clear)"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Optional session UUID to associate with"),
+};
+
+export const updateBusinessStatusSchema = z.object(updateBusinessStatusInputShape);
+
+export type UpdateBusinessStatusDTO = z.infer<typeof updateBusinessStatusSchema>;
+
+export interface UpdateBusinessStatusResultDTO {
+  success: boolean;
+  business: {
+    id: string;
+    name: string;
+    trustStatus: string;
+  };
+  realtimeStatus: {
+    isTerraceOpen: boolean;
+    availableSeats: number;
+    activeAlert: string;
+    lastUpdated: string;
+  };
+  message: string;
+}
+

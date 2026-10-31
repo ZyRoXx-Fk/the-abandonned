@@ -20,6 +20,14 @@ export class BusinessRepository {
   async updateById(id: string, update: Partial<IBusiness>): Promise<IBusiness | null> {
     return Business.findByIdAndUpdate(id, { $set: update }, { new: true });
   }
+
+  async findByNameAndOwnerId(name: string, ownerId: string): Promise<IBusiness | null> {
+    const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return Business.findOne({
+      ownerId,
+      name: { $regex: new RegExp(`^${escaped}$`, "i") },
+    });
+  }
 }
 
 export const businessRepository = new BusinessRepository();
