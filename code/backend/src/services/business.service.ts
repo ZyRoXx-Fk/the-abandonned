@@ -10,6 +10,9 @@ import {
   SaveBusinessProfileResultDTO,
   UpdateBusinessStatusDTO,
   UpdateBusinessStatusResultDTO,
+  SearchRestaurantsDTO,
+  SearchRestaurantsResultDTO,
+  SearchRestaurantItemDTO,
 } from "../schemas/business.schema.js";
 import { NotFound, Forbidden, BadRequest } from "../utils/errors/http.error.js";
 import { IBusiness } from "../models/business.model.js";
@@ -195,6 +198,86 @@ export class BusinessService {
         lastUpdated: updatedRealtime.lastUpdated.toISOString(),
       },
       message: `Live status for '${business.name}' successfully updated: ${changeLog.join(" | ")}. Timestamp: ${updatedRealtime.lastUpdated.toISOString()}.`,
+    };
+  }
+
+  async searchRestaurants(
+    query: SearchRestaurantsDTO
+  ): Promise<SearchRestaurantsResultDTO> {
+    const businesses = await this.businessRepo.findTrustedBusinesses({
+      cuisine: query.cuisine,
+      amenities: query.amenities,
+    });
+
+    if (businesses.length === 0) {
+      return {
+        count: 0,
+        restaurants: [],
+        summary: "No certified restaurants found matching your criteria in Basel.",
+      };
+    }
+
+    const businessIds = businesses.map((b) => b._id.toString());
+    const realtimes = await this.realtimeRepo.findByBusinessIds(businessIds);
+    const realtimeMap = new Map(realtimes.map((r) => [r.businessId.toString(), r]));
+
+    const now = Date.now();
+    const results: SearchRestaurantItemDTO[] = [];
+
+    for (const b of businesses) {
+      const bid = b._id.toString();
+      const rt = realtimeMap.get(bid);
+
+      const isTerraceOpen = rt?.isTerraceOpen ?? (b.mcpProfile.amenities || []).includes("terrace");
+      const availableSeats = rt?.availableSeats ?? b.mcpProfile.baseCapacity;
+      const activeAlert = rt?.activeAlert || "";
+      const lastUpdatedDate = rt?.lastUpdated || b.updatedAt || new Date();
+      const freshnessMinutes = Math.max(
+        0,
+        Math.round((now - new Date(lastUpdatedDate).getTime()) / (60 * 1000))
+      );
+
+      // Filter by open terrace if requested
+      if (query.onlyOpenTerrace && !isTerraceOpen) {
+        continue;
+      }
+
+      // Filter by min seats if requested
+      if (query.minSeats !== undefined && availableSeats < query.minSeats) {
+        continue;
+      }
+
+      results.push({
+        id: bid,
+        name: b.name,
+        trustStatus: b.trustStatus,
+        cuisine: b.mcpProfile.cuisine,
+        address: b.mcpProfile.address,
+        baseCapacity: b.mcpProfile.baseCapacity,
+        amenities: b.mcpProfile.amenities,
+        realtime: {
+          isTerraceOpen,
+          availableSeats,
+          activeAlert,
+          lastUpdated: new Date(lastUpdatedDate).toISOString(),
+          freshnessMinutes,
+        },
+      });
+
+      if (query.limit && results.length >= query.limit) {
+        break;
+      }
+    }
+
+    const summary =
+      results.length > 0
+        ? `Found ${results.length} certified restaurant(s) in Basel matching your request with live verified status.`
+        : "No certified restaurants currently open or matching all real-time constraints.";
+
+    return {
+      count: results.length,
+      restaurants: results,
+      summary,
     };
   }
 

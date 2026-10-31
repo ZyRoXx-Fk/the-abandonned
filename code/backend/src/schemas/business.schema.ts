@@ -121,3 +121,58 @@ export interface UpdateBusinessStatusResultDTO {
   message: string;
 }
 
+export const searchRestaurantsInputShape = {
+  cuisine: z
+    .string()
+    .optional()
+    .describe("Filter by cuisine type (e.g. 'Swiss', 'Italian', 'Brasserie', 'Japanese')"),
+  amenities: z
+    .array(z.string())
+    .optional()
+    .describe("Filter by required amenities (e.g. ['terrace', 'dog_friendly', 'accessible', 'wifi'])"),
+  onlyOpenTerrace: z
+    .boolean()
+    .optional()
+    .describe("If true, only returns restaurants whose outdoor terrace is verified OPEN right now in real time"),
+  minSeats: z
+    .number()
+    .min(1)
+    .optional()
+    .describe("Filter for restaurants with at least this many available seats right now"),
+  limit: z
+    .number()
+    .min(1)
+    .max(50)
+    .optional()
+    .default(10)
+    .describe("Maximum number of restaurants to return (default: 10, max: 50)"),
+};
+
+export const searchRestaurantsSchema = z.object(searchRestaurantsInputShape);
+
+export type SearchRestaurantsDTO = z.infer<typeof searchRestaurantsSchema>;
+
+export interface SearchRestaurantItemDTO {
+  id: string;
+  name: string;
+  trustStatus: string;
+  cuisine: string;
+  address: string;
+  baseCapacity: number;
+  amenities: string[];
+  realtime: {
+    isTerraceOpen: boolean;
+    availableSeats: number;
+    activeAlert: string;
+    lastUpdated: string;
+    freshnessMinutes: number;
+  };
+}
+
+export interface SearchRestaurantsResultDTO {
+  count: number;
+  restaurants: SearchRestaurantItemDTO[];
+  summary: string;
+}
+
+

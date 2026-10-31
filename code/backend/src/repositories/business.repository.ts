@@ -28,6 +28,24 @@ export class BusinessRepository {
       name: { $regex: new RegExp(`^${escaped}$`, "i") },
     });
   }
+
+  async findTrustedBusinesses(filter?: {
+    cuisine?: string;
+    amenities?: string[];
+  }): Promise<IBusiness[]> {
+    const query: any = { trustStatus: "trusted" };
+
+    if (filter?.cuisine) {
+      const escaped = filter.cuisine.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query["mcpProfile.cuisine"] = { $regex: new RegExp(escaped, "i") };
+    }
+
+    if (filter?.amenities && filter.amenities.length > 0) {
+      query["mcpProfile.amenities"] = { $all: filter.amenities };
+    }
+
+    return Business.find(query);
+  }
 }
 
 export const businessRepository = new BusinessRepository();

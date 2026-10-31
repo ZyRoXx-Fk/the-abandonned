@@ -30,6 +30,10 @@ export class RealtimeStatusRepository {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
   }
+
+  async findByBusinessIds(businessIds: string[]): Promise<IRealtimeStatus[]> {
+    return RealtimeStatus.find({ businessId: { $in: businessIds } });
+  }
 }
 
 export const realtimeStatusRepository = new RealtimeStatusRepository();

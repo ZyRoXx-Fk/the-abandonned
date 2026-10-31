@@ -14,6 +14,7 @@ import { auditWebsiteInputShape } from "../schemas/audit.schema.js";
 import {
   saveBusinessProfileInputShape,
   updateBusinessStatusInputShape,
+  searchRestaurantsInputShape,
 } from "../schemas/business.schema.js";
 import { randomUUID } from "crypto";
 import { ServerResponse, IncomingMessage } from "http";
@@ -227,6 +228,35 @@ export class McpService {
               {
                 type: "text",
                 text: error?.message || "Error updating business live status",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      "search_restaurants",
+      "Searches verified Basel restaurants in the MCP directory based on cuisine, amenities, open terrace state, and live available seats with zero hallucination.",
+      searchRestaurantsInputShape,
+      async (args) => {
+        try {
+          const result = await this.businessSvc.searchRestaurants(args);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error: any) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: error?.message || "Error searching restaurants",
               },
             ],
           };
