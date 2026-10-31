@@ -4,6 +4,8 @@ import dotenv from "dotenv";
 import { connectDatabase, disconnectDatabase, isDatabaseConnected } from "./config/database.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { linkTokenRoutes } from "./routes/link-token.routes.js";
+import { mcpRoutes } from "./routes/mcp.routes.js";
+import { mcpService } from "./services/mcp.service.js";
 
 dotenv.config();
 
@@ -34,6 +36,9 @@ export async function buildApp() {
 
   await app.register(authRoutes, { prefix: "/api/auth" });
   await app.register(linkTokenRoutes, { prefix: "/api/auth/link-token" });
+  await app.register(mcpRoutes);
+
+  await mcpService.init();
 
   return app;
 }
