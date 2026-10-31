@@ -1,0 +1,48 @@
+---
+interface Props { dark?: boolean; }
+const { dark = false } = Astro.props;
+---
+<div class:list={['connection-art', { dark }]} aria-hidden="true">
+	<div class="art-top"><span>LE BON LIEN, AU BON ENDROIT.</span><span class="crosshair">+</span></div>
+	<div class="art-grid">
+		<div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+		<svg class="connection" viewBox="0 0 480 330" fill="none">
+			<path class="link-shadow" d="M135 231V145a73 73 0 0 1 146 0v86" stroke-width="48" />
+			<path class="red-link" d="M135 231V145a73 73 0 0 1 146 0v86" stroke-width="46" />
+			<path class="ink-link" d="M208 140v86a73 73 0 0 0 146 0v-86" stroke-width="46" />
+			<path class="red-front" d="M135 198v-53a73 73 0 0 1 73-73" stroke-width="46" />
+		</svg>
+		<span class="art-dot dot-one"></span><span class="art-dot dot-two"></span>
+		<span class="art-coordinate coord-one">01</span><span class="art-coordinate coord-two">02</span>
+	</div>
+	<div class="art-bottom"><span>Votre assistant</span><span class="connection-line"><i></i><span>MCP</span><i></i></span><span>Votre univers</span></div>
+</div>
+<style>
+	.connection-art { width: 100%; max-width: 450px; position: relative; color: var(--ink); }
+	.art-top { display: flex; justify-content: space-between; align-items: center; font-size: 8px; font-weight: 500; letter-spacing: .13em; color: var(--muted); padding-inline: 14px; }
+	.crosshair { font-size: 21px; font-weight: 400; }
+	.art-grid { position: relative; background-image: radial-gradient(#7479673d .75px, transparent .75px); background-size: 15px 15px; margin-block: 12px 18px; isolation: isolate; }
+	.connection { width: 100%; height: auto; transform: rotate(-25deg) scale(.95); overflow: visible; }
+	.link-shadow { stroke: #b32d2020; transform: translate(3px, 9px); filter: blur(5px); }
+	.red-link, .red-front { stroke: #df4834; }
+	.ink-link { stroke: #30372b; }
+	.orbit { position: absolute; width: 49%; aspect-ratio: 1; border: 1px solid #9caa893b; border-radius: 50%; z-index: -1; top: 11%; left: 14%; }
+	.orbit-two { top: 21%; left: 36%; }
+	.art-dot { position: absolute; height: 7px; width: 7px; border-radius: 50%; background: var(--red); border: 2px solid var(--paper); }
+	.dot-one { top: 26%; left: 12%; }
+	.dot-two { bottom: 19%; right: 9%; background: var(--ink); }
+	.art-coordinate { font-size: 8px; letter-spacing: .06em; position: absolute; color: var(--muted); }
+	.coord-one { top: 20%; left: 8%; }
+	.coord-two { bottom: 11%; right: 5%; }
+	.art-bottom { display: flex; align-items: center; justify-content: space-between; padding-inline: 14px; font-size: 10px; }
+	.connection-line { display: flex; align-items: center; gap: 10px; flex: 1; padding-inline: 16px; color: var(--muted); font-size: 8px; letter-spacing: .09em; }
+	.connection-line i { display: block; flex: 1; height: 1px; background: var(--line); }
+	.dark { color: var(--paper); }
+	.dark .art-top, .dark .art-coordinate, .dark .connection-line { color: #b4b9a9; }
+	.dark .art-grid { background-image: radial-gradient(#c4cfb538 .75px, transparent .75px); }
+	.dark .ink-link { stroke: #e5e7d7; }
+	.dark .art-dot { border-color: #30372b; }
+	.dark .dot-two { background: #e5e7d7; }
+	.dark .connection-line i { background: #626955; }
+	.dark .orbit { border-color: #aab29c33; }
+</style>

@@ -1,0 +1,29 @@
+---
+import Icon from './Icon.astro';
+import { installationPrompt, type Role } from '../lib/profiles';
+import { defaultLocale, localizedPath, translations, type Locale } from '../i18n';
+interface Props { role: Role; locale?: Locale; }
+const { role, locale = defaultLocale } = Astro.props;
+const t = translations(locale);
+const profile = t.profiles[role];
+---
+<article class="prompt-card">
+	<div class="profile-heading"><span class="profile-icon"><Icon name={role === 'client' ? 'person' : 'business'} size={17} /></span><h2>{t.roles[role]}</h2></div>
+	<p>{profile.description}</p>
+	<button class="button copy-button" type="button" data-prompt={installationPrompt(role, locale)} data-role={role} data-copied-label={t.home.copiedButton} aria-label={profile.copyLabel}>
+		<Icon name="copy" size={15} /><span data-copy-label>{profile.copy}</span>
+	</button>
+	<div class="card-bottom"><a href={localizedPath(locale, `/${role}/login/`)}>{t.nav.login}</a><span aria-hidden="true">·</span><a href={localizedPath(locale, `/${role}/register/`)}>{t.nav.register}</a></div>
+</article>
+<style>
+	.prompt-card { padding-top: 24px; border-top: 1px solid var(--line); min-width: 0; }
+	.profile-heading { display: flex; align-items: center; gap: 11px; }
+	.profile-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 5px; background: linear-gradient(135deg, var(--accent-soft), var(--accent-strong)); color: var(--on-accent); }
+	h2 { font-size: 18px; line-height: 1.3; font-weight: 500; letter-spacing: -.4px; }
+	.prompt-card > p { color: var(--muted); font-size: 12px; line-height: 1.7; margin-top: 8px; }
+	.copy-button { margin-top: 25px; width: 100%; font-size: 12px; }
+	.copy-button[data-copied] { background: var(--accent-soft); }
+	.card-bottom { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; font-size: 11px; color: var(--muted); }
+	.card-bottom a { padding-block: 5px; }
+	.card-bottom a:hover { color: var(--accent); }
+</style>

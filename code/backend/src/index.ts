@@ -1,17 +1,19 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import dotenv from "dotenv";
 import { connectDatabase, disconnectDatabase, isDatabaseConnected } from "./config/database.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { linkTokenRoutes } from "./routes/link-token.routes.js";
 import { mcpRoutes } from "./routes/mcp.routes.js";
 import { mcpService } from "./services/mcp.service.js";
+import { frontendOrigins } from "./config/auth.js";
 
 dotenv.config();
 
 const port = Number(process.env.PORT) || 3000;
 const host = process.env.HOST || "0.0.0.0";
-const frontendUrl = process.env.FRONTEND_URL || "http://localhost:4321";
 
 export async function buildApp() {
   const app = Fastify({
@@ -19,10 +21,13 @@ export async function buildApp() {
   });
 
   await app.register(cors, {
-    origin: [frontendUrl, "http://localhost:3000", "http://127.0.0.1:3000"],
+    origin: frontendOrigins(),
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
   });
+
+  await app.register(cookie);
+  await app.register(rateLimit, { global: false });
 
   app.get("/health", async () => {
     return {

@@ -1,0 +1,13 @@
+---
+interface Props { compact?: boolean; }
+const { compact = false } = Astro.props;
+---
+<footer class:list={['site-footer', 'container', { compact }]}>
+	<p>BaselHack <span>×</span> Adobe</p>
+	<span>2026</span>
+</footer>
+<style>
+	.site-footer { min-height: 72px; display: flex; justify-content: space-between; align-items: center; gap: 20px; font-family: var(--mono); font-size: 10px; color: var(--muted); border-top: 1px solid var(--line); }
+	p span { margin-inline: 4px; }
+	.compact { min-height: 64px; }
+</style>

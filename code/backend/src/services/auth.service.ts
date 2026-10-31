@@ -56,6 +56,7 @@ export class AuthService {
   }
 
   async registerOwner(dto: RegisterOwnerDTO): Promise<AuthResult> {
+    TokenManager.assertConfigured();
     const existingOwner = await this.ownerRepo.findByEmail(dto.email);
     if (existingOwner) {
       throw new Conflict("An owner with this email already exists");
@@ -95,6 +96,7 @@ export class AuthService {
   }
 
   async registerClient(dto: RegisterClientDTO): Promise<AuthResult> {
+    TokenManager.assertConfigured();
     const existingClient = await this.clientRepo.findByEmail(dto.email);
     if (existingClient) {
       throw new Conflict("A client with this email already exists");
@@ -135,9 +137,9 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDTO): Promise<AuthResult> {
+  async login(dto: LoginDTO, expectedRole?: UserRole): Promise<AuthResult> {
     // 1. Check in Owner repository
-    const owner = await this.ownerRepo.findByEmail(dto.email);
+    const owner = expectedRole === "client" ? null : await this.ownerRepo.findByEmail(dto.email);
     if (owner) {
       const isValid = await this.comparePassword(dto.password, owner.passwordHash);
       if (!isValid) {
@@ -164,7 +166,7 @@ export class AuthService {
     }
 
     // 2. Check in Client repository
-    const client = await this.clientRepo.findByEmail(dto.email);
+    const client = expectedRole === "owner" ? null : await this.clientRepo.findByEmail(dto.email);
     if (client) {
       const isValid = await this.comparePassword(dto.password, client.passwordHash);
       if (!isValid) {

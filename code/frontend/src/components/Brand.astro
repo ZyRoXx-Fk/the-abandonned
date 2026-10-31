@@ -1,0 +1,18 @@
+---
+import { defaultLocale, localizedPath, translations, type Locale } from '../i18n';
+import Icon from './Icon.astro';
+interface Props { light?: boolean; locale?: Locale; }
+const { light = false, locale = defaultLocale } = Astro.props;
+const t = translations(locale);
+---
+<a class:list={['brand', { light }]} href={localizedPath(locale)} aria-label={t.nav.brandHome}>
+	<span class="brand-symbol"><Icon name="lightning" size={17} /></span>
+	<span>relay<span class="period">.</span></span>
+</a>
+<style>
+	.brand { display: inline-flex; align-items: center; gap: 9px; width: fit-content; }
+	.brand > span:last-child { font-size: 27px; font-weight: 600; letter-spacing: -1.5px; line-height: 1; }
+	.brand-symbol { display: grid; place-items: center; width: 27px; height: 29px; background: var(--accent); color: var(--on-accent); border-radius: 4px; }
+	.period { color: var(--accent); }
+	.light { color: var(--ink); }
+</style>

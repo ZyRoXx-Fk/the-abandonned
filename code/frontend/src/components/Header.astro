@@ -1,0 +1,62 @@
+---
+import Brand from './Brand.astro';
+import Icon from './Icon.astro';
+import { defaultLocale, locales, localizedPath, translations, type Locale } from '../i18n';
+interface Props { minimal?: boolean; locale?: Locale; }
+const { minimal = false, locale = defaultLocale } = Astro.props;
+const t = translations(locale);
+---
+<header class="site-header container">
+	<Brand locale={locale} />
+	<div class="header-actions">
+	{minimal ? (
+		<a class="text-link back-link" href={localizedPath(locale)}>{t.nav.home}</a>
+	) : (
+		<nav aria-label={t.nav.main}>
+			<details class="login-menu">
+				<summary>{t.nav.login} <Icon name="chevron" size={14} /></summary>
+				<div class="login-options">
+					<a href={localizedPath(locale, '/client/login/')}>{t.roles.client} <Icon name="arrow" size={14} /></a>
+					<a href={localizedPath(locale, '/business/login/')}>{t.roles.business} <Icon name="arrow" size={14} /></a>
+				</div>
+			</details>
+			<a class="signup-link" href={localizedPath(locale, '/client/register/')}>{t.nav.register}</a>
+		</nav>
+	)}
+	<nav class="language-switch" aria-label={t.language.label}>
+		{locales.map((language) => <a href={localizedPath(language, Astro.url.pathname)} lang={language} hreflang={language} aria-label={t.language[language]} aria-current={language === locale ? 'page' : undefined}>{language.toUpperCase()}</a>)}
+	</nav>
+	</div>
+</header>
+<script>
+	const menu = document.querySelector<HTMLDetailsElement>('.login-menu');
+	document.addEventListener('click', (event) => {
+		if (menu && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+	});
+	document.addEventListener('keydown', (event) => {
+		if (event.key === 'Escape' && menu?.open) {
+			menu.open = false;
+			menu.querySelector('summary')?.focus();
+		}
+	});
+</script>
+<style>
+	.site-header { display: flex; justify-content: space-between; align-items: center; min-height: 88px; gap: 20px; position: relative; z-index: 10; border-bottom: 1px solid var(--line); }
+	.header-actions { display: flex; align-items: center; gap: 30px; }
+	nav { display: flex; gap: 28px; align-items: center; font-size: 12px; }
+	.signup-link { color: var(--muted); padding-block: 12px; }
+	.signup-link:hover { color: var(--ink); }
+	.login-menu { position: relative; }
+	summary { display: flex; align-items: center; gap: 7px; list-style: none; cursor: pointer; padding: 12px 0; }
+	summary::-webkit-details-marker { display: none; }
+	.login-menu[open] summary { color: var(--accent); }
+	.login-options { position: absolute; top: 42px; right: 0; width: 170px; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+	.login-options a { display: flex; align-items: center; gap: 11px; padding: 13px 12px; border-radius: 2px; }
+	.login-options a:hover { background: var(--surface-hover); }
+	.login-options a svg:last-child { margin-left: auto; }
+	.language-switch { gap: 10px; font-size: 10px; color: var(--muted); }
+	.language-switch a { padding-block: 12px; }
+	.language-switch [aria-current='page'] { color: var(--accent); }
+	.language-switch a:hover { color: var(--accent); }
+	@media (max-width: 500px) { .site-header { min-height: 76px; } nav { gap: 16px; font-size: 11px; } .header-actions { gap: 20px; } .language-switch { gap: 10px; font-size: 10px; } .signup-link { display: none; } }
+</style>

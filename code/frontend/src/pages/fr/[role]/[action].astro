@@ -1,0 +1,6 @@
+---
+import AuthPage from '../../../components/pages/AuthPage.astro';
+import { getAuthPaths } from '../../../lib/auth-routes';
+export const getStaticPaths = () => getAuthPaths('fr');
+---
+<AuthPage {...Astro.props} />

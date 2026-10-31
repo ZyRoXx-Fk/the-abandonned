@@ -1,0 +1,92 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Header from '../Header.astro';
+import Footer from '../Footer.astro';
+import Icon from '../Icon.astro';
+import PromptCard from '../PromptCard.astro';
+import DiscoveryHeading from '../DiscoveryHeading.astro';
+import { translations, type Locale } from '../../i18n';
+interface Props { locale: Locale; }
+const { locale } = Astro.props;
+const t = translations(locale);
+---
+
+<Layout locale={locale}>
+	<div class="home-page">
+	<Header locale={locale} />
+	<main id="main">
+		<section class="hero" aria-labelledby="hero-title">
+			<DiscoveryHeading locale={locale} />
+			<p>{t.home.intro}<br class="desktop-break" /> {t.home.instructions}</p>
+		</section>
+		<section class="cards" aria-label={t.home.chooseProfile}>
+			<PromptCard role="client" locale={locale} /><PromptCard role="business" locale={locale} />
+		</section>
+		<a class="mcp-link" href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer">{t.home.aboutMcp} <Icon name="arrow-up" size={12} /></a>
+	</main>
+	<Footer />
+	</div>
+	<div class="toast" role="status" aria-live="polite" aria-atomic="true" hidden><Icon name="check" size={15} /><p>{t.home.copied}</p><button type="button" aria-label={t.home.dismiss} data-dismiss-toast><Icon name="close" size={15} /></button></div>
+	<dialog class="copy-fallback" aria-labelledby="fallback-title"><div class="fallback-heading"><h2 id="fallback-title">{t.home.fallbackTitle}</h2><button class="dialog-close" type="button" aria-label={t.home.close}><Icon name="close" /></button></div><p>{t.home.fallbackDescription}</p><textarea readonly aria-label={t.home.promptLabel} rows="10"></textarea><button type="button" class="button" data-select-prompt>{t.home.selectPrompt} <Icon name="copy" size={16} /></button></dialog>
+	<script>
+		const toast = document.querySelector<HTMLElement>('.toast');
+		const dialog = document.querySelector<HTMLDialogElement>('.copy-fallback');
+		const textarea = dialog?.querySelector('textarea');
+		let toastTimer: ReturnType<typeof setTimeout>;
+		const resetTimers = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+
+		document.querySelectorAll<HTMLButtonElement>('[data-prompt]').forEach((button) => {
+			const label = button.querySelector('[data-copy-label]');
+			const originalLabel = label?.textContent || '';
+			button.addEventListener('click', async () => {
+				const prompt = button.dataset.prompt;
+				if (!prompt) return;
+				try {
+					await navigator.clipboard.writeText(prompt);
+					if (label) label.textContent = button.dataset.copiedLabel || originalLabel;
+					button.dataset.copied = 'true';
+					clearTimeout(resetTimers.get(button));
+					resetTimers.set(button, setTimeout(() => {
+						if (label) label.textContent = originalLabel;
+						delete button.dataset.copied;
+					}, 3000));
+					if (toast) toast.hidden = false;
+					clearTimeout(toastTimer);
+					toastTimer = setTimeout(() => { if (toast) toast.hidden = true; }, 5500);
+				} catch {
+					if (dialog && textarea) {
+						textarea.value = prompt;
+						dialog.showModal();
+						textarea.focus();
+						textarea.select();
+					}
+				}
+			});
+		});
+		document.querySelector('[data-dismiss-toast]')?.addEventListener('click', () => { if (toast) toast.hidden = true; });
+		dialog?.querySelector('.dialog-close')?.addEventListener('click', () => dialog.close());
+		dialog?.querySelector('[data-select-prompt]')?.addEventListener('click', () => { textarea?.focus(); textarea?.select(); });
+	</script>
+</Layout>
+
+<style>
+	.home-page { min-height: 100svh; display: flex; flex-direction: column; }
+	main { width: min(680px, calc(100% - 64px)); margin: auto; padding-block: 76px 100px; }
+	.hero { margin-bottom: 48px; }
+	.hero > p { margin-top: 18px; font-size: 14px; line-height: 1.8; color: var(--muted); }
+	.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+	.mcp-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 38px; font-size: 11px; color: var(--muted); }
+	.mcp-link:hover { color: var(--accent); }
+	.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 10px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); padding: 10px 12px 10px 16px; border-radius: 4px; }
+	.toast > svg { color: var(--accent); }
+	.toast p { font-size: 12px; white-space: nowrap; }
+	.toast > button { border: 0; background: transparent; color: inherit; padding: 8px; margin-left: 15px; }
+	.copy-fallback { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; max-width: 560px; width: calc(100% - 40px); padding: 28px; }
+	.copy-fallback::backdrop { background: #000000b3; }
+	.fallback-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+	.fallback-heading h2 { font-size: 23px; letter-spacing: -.7px; font-weight: 500; }
+	.dialog-close { border: 0; padding: 8px; background: transparent; }
+	.copy-fallback > p { margin-top: 15px; font-size: 12px; line-height: 1.7; color: var(--muted); }
+	.copy-fallback textarea { width: 100%; resize: vertical; padding: 14px; margin-block: 20px; border: 1px solid var(--field-line); background: var(--background); color: var(--ink); font-size: 11px; line-height: 1.7; border-radius: 3px; }
+	@media (max-width: 600px) { main { width: calc(100% - 40px); padding-block: 44px; } .hero { margin-bottom: 34px; } .hero > p { font-size: 13px; } .desktop-break { display: none; } .cards { grid-template-columns: 1fr; gap: 28px; } .mcp-link { margin-top: 30px; } }
+</style>

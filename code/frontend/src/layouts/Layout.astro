@@ -1,0 +1,38 @@
+---
+import '../styles/global.css';
+import { defaultLocale, localizedPath, translations, type Locale } from '../i18n';
+
+interface Props {
+	locale?: Locale;
+	title?: string;
+	description?: string;
+}
+
+const { locale = defaultLocale } = Astro.props;
+const t = translations(locale);
+const { title = t.meta.title, description = t.meta.description } = Astro.props;
+---
+
+<!doctype html>
+<html lang={locale}>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="description" content={description} />
+		<link rel="alternate" hreflang="en" href={localizedPath('en', Astro.url.pathname)} />
+		<link rel="alternate" hreflang="fr" href={localizedPath('fr', Astro.url.pathname)} />
+		<link rel="alternate" hreflang="x-default" href={localizedPath('en', Astro.url.pathname)} />
+		<meta name="theme-color" content="#101010" />
+		<link rel="icon" type="image/svg+xml" href="/relay.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600&display=swap" rel="stylesheet" />
+		<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{title}</title>
+	</head>
+	<body>
+		<a class="skip-link" href="#main">{t.meta.skip}</a>
+		<slot />
+	</body>
+</html>

@@ -1,0 +1,114 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Header from '../Header.astro';
+import Footer from '../Footer.astro';
+import Icon from '../Icon.astro';
+import type { Role, AuthAction } from '../../lib/profiles';
+import { localizedPath, translations, type Locale } from '../../i18n';
+
+interface Props { role: Role; action: AuthAction; locale: Locale; }
+const { role, action, locale } = Astro.props;
+const t = translations(locale);
+const isRegister = action === 'register';
+const isBusiness = role === 'business';
+const title = isRegister ? t.auth.registerTitle : t.auth.loginTitle;
+const formMessages = {
+	validation: t.auth.validation,
+	errors: t.auth.errors,
+	pendingLogin: t.auth.pendingLogin,
+	pendingRegister: t.auth.pendingRegister,
+	pendingLogout: t.auth.pendingLogout,
+	connectedTitle: t.auth.connectedTitle,
+	registerSuccess: t.auth.registerSuccess,
+	loginSuccess: t.auth.loginSuccess,
+	sessionActive: t.auth.sessionActive,
+};
+---
+
+<Layout locale={locale} title={`${isRegister ? t.auth.registerMeta : t.auth.loginMeta} · ${t.roles[role]} — relay`}>
+	<div class="auth-page">
+		<Header minimal locale={locale} />
+		<main class="auth-main container" id="main">
+			<section class="auth-form-section" aria-labelledby="auth-title" data-auth-messages={JSON.stringify(formMessages)}>
+				<div class="form-content">
+					<nav class="role-tabs" aria-label={t.auth.accountType}>
+						<a href={localizedPath(locale, `/client/${action}/`)} class:list={['role-tab', { active: !isBusiness }]} aria-current={!isBusiness ? 'page' : undefined}>{t.roles.client}</a>
+						<a href={localizedPath(locale, `/business/${action}/`)} class:list={['role-tab', { active: isBusiness }]} aria-current={isBusiness ? 'page' : undefined}>{t.roles.business}</a>
+					</nav>
+					<div class="form-heading"><h1 id="auth-title">{title}</h1><p>{isBusiness ? t.auth.businessSpace : t.auth.clientSpace}</p></div>
+					<div class="auth-message" role="alert" tabindex="-1" hidden></div>
+
+					<div data-form-region>
+					{isRegister && isBusiness && <p class="owner-hint">{t.auth.ownerHint}</p>}
+					<form class="auth-form" method="post" data-action={action} data-role={role}>
+						{isRegister && <div class="name-fields"><div class="field"><label for="firstName">{t.auth.firstName}</label><input id="firstName" name="firstName" type="text" placeholder={t.auth.firstNamePlaceholder} autocomplete="given-name" required maxlength="120" /></div><div class="field"><label for="lastName">{t.auth.lastName}</label><input id="lastName" name="lastName" type="text" placeholder={t.auth.lastNamePlaceholder} autocomplete="family-name" required maxlength="120" /></div></div>}
+						<div class="field"><label for="email">{isBusiness ? t.auth.businessEmail : t.auth.email}</label><input id="email" name="email" type="email" placeholder={isBusiness ? t.auth.businessEmailPlaceholder : t.auth.emailPlaceholder} autocomplete="email" inputmode="email" required maxlength="254" /></div>
+						<div class="field"><label for="password">{t.auth.password} {isRegister && <span>{t.auth.passwordMinimum}</span>}</label><div class="password-input"><input id="password" name="password" type="password" placeholder={isRegister ? t.auth.newPasswordPlaceholder : t.auth.passwordPlaceholder} autocomplete={isRegister ? 'new-password' : 'current-password'} minlength={isRegister ? 8 : undefined} maxlength={isRegister ? 72 : undefined} required aria-describedby={isRegister ? 'password-hint' : undefined} /><button type="button" class="toggle-password" aria-label={t.auth.showPassword} data-show-label={t.auth.showPassword} data-hide-label={t.auth.hidePassword} aria-controls="password" aria-pressed="false"><Icon name="eye" size={18} /></button></div>{isRegister && <span class="visually-hidden" id="password-hint">{t.auth.passwordHint}</span>}</div>
+						{isRegister && <div class="field"><label for="confirm-password">{t.auth.confirmPassword}</label><div class="password-input"><input id="confirm-password" name="confirm-password" type="password" placeholder={t.auth.confirmPlaceholder} autocomplete="new-password" minlength="8" required /><button type="button" class="toggle-password" aria-label={t.auth.showConfirmation} data-show-label={t.auth.showConfirmation} data-hide-label={t.auth.hideConfirmation} aria-controls="confirm-password" aria-pressed="false"><Icon name="eye" size={18} /></button></div></div>}
+						<button class="button submit-button" type="submit" disabled>{isRegister ? t.auth.createAccount : t.nav.login}</button>
+						<noscript><p class="noscript-note">{t.auth.noScript}</p></noscript>
+					</form>
+
+					<p class="switch-action">{isRegister ? t.auth.alreadyAccount : t.auth.noAccount} <a href={localizedPath(locale, `/${role}/${isRegister ? 'login' : 'register'}/`)}>{isRegister ? t.nav.login : t.nav.register}</a></p>
+					<p class="privacy-notice">{t.auth.privacyNotice}</p>
+					</div>
+					<div class="account-panel" data-account-panel tabindex="-1" hidden>
+						<p class="account-status" role="status" aria-live="polite" data-account-status></p>
+						<div class="account-profile"><Icon name="check" size={20} /><div><p class="account-name" data-account-name></p><p class="account-email" data-account-email></p></div></div>
+						<a class="button" href={localizedPath(locale)}>{t.auth.continueHome}</a>
+						<button class="logout-button" type="button" data-logout>{t.auth.logout}</button>
+					</div>
+				</div>
+			</section>
+		</main>
+		<Footer compact />
+	</div>
+	<script src="../../scripts/auth-form.ts"></script>
+</Layout>
+
+<style>
+	.auth-page { display: flex; min-height: 100svh; flex-direction: column; }
+	.auth-main { margin-block: auto; padding-block: 40px 60px; }
+	.auth-form-section { width: min(100%, 340px); margin-inline: auto; }
+	.role-tabs { display: flex; gap: 26px; border-bottom: 1px solid var(--line); margin-bottom: 30px; }
+	.role-tab { padding-block: 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid transparent; margin-bottom: -1px; }
+	.role-tab:hover { color: var(--ink); }
+	.role-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+	h1 { font-size: 30px; line-height: 1.2; font-weight: 500; letter-spacing: -1px; }
+	.form-heading > p { color: var(--muted); font-size: 12px; line-height: 1.7; margin-top: 9px; }
+	.auth-form { margin-top: 28px; }
+	.name-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+	.name-fields .field { min-width: 0; }
+	.field { margin-bottom: 18px; }
+	.field > label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 450; margin-bottom: 8px; gap: 10px; }
+	.field > label > span { color: var(--muted); font-size: 10px; font-weight: 400; }
+	.field input { width: 100%; height: 44px; padding: 11px 12px; font-size: 12px; border: 1px solid var(--field-line); border-radius: 3px; background: var(--surface); color: var(--ink); transition: border-color .2s; }
+	.field input::placeholder { color: var(--muted); }
+	.field input:hover { border-color: var(--muted); }
+	.field input:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+	.password-input { position: relative; }
+	.password-input input { padding-right: 45px; }
+	.toggle-password { display: grid; place-items: center; position: absolute; right: 2px; top: 2px; width: 40px; height: 40px; background: transparent; border: 0; color: var(--muted); border-radius: 2px; }
+	.toggle-password:hover { color: var(--ink); }
+	.toggle-password[aria-pressed='true'] { color: var(--accent); }
+	.submit-button { width: 100%; margin-top: 5px; }
+	.submit-button:disabled { opacity: .6; }
+	.switch-action { text-align: center; color: var(--muted); font-size: 11px; line-height: 1.8; margin-top: 22px; }
+	.switch-action a { color: var(--accent); margin-left: 4px; text-decoration: underline; text-underline-offset: 3px; }
+	.switch-action a:hover { color: var(--accent); }
+	.privacy-notice { margin-top: 28px; text-align: center; font-size: 10px; color: var(--muted); line-height: 1.8; }
+	.owner-hint { margin-top: 18px; font-size: 11px; line-height: 1.8; color: var(--muted); }
+	.auth-message { padding: 12px; margin-block: 18px; background: var(--surface); border-left: 2px solid var(--accent); color: var(--ink); font-size: 11px; line-height: 1.8; border-radius: 3px; }
+	.account-panel { margin-top: 28px; }
+	.account-status { font-size: 12px; line-height: 1.8; color: var(--muted); }
+	.account-profile { display: flex; align-items: center; gap: 14px; margin-block: 22px 28px; padding-block: 20px; border-block: 1px solid var(--line); }
+	.account-profile > svg { color: var(--accent); }
+	.account-name { font-size: 14px; overflow-wrap: anywhere; }
+	.account-email { font-size: 11px; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+	.account-panel > .button { width: 100%; }
+	.logout-button { display: block; margin: 16px auto 0; padding: 10px; background: none; border: none; color: var(--muted); font-size: 12px; }
+	.logout-button:hover { color: var(--accent); }
+	.noscript-note { font-size: 11px; line-height: 1.8; margin-top: 12px; color: var(--accent); }
+	.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+	@media (max-width: 600px) { .auth-main { padding-block: 22px 40px; } .field input { font-size: 16px; } .field input::placeholder { font-size: 12px; } }
+</style>

@@ -1,0 +1,30 @@
+---
+import arrow from 'bootstrap-icons/icons/arrow-right.svg?raw';
+import arrowUp from 'bootstrap-icons/icons/arrow-up-right.svg?raw';
+import copy from 'bootstrap-icons/icons/copy.svg?raw';
+import check from 'bootstrap-icons/icons/check2.svg?raw';
+import person from 'bootstrap-icons/icons/person.svg?raw';
+import business from 'bootstrap-icons/icons/buildings.svg?raw';
+import plus from 'bootstrap-icons/icons/plus.svg?raw';
+import chevron from 'bootstrap-icons/icons/chevron-down.svg?raw';
+import eye from 'bootstrap-icons/icons/eye.svg?raw';
+import lock from 'bootstrap-icons/icons/lock.svg?raw';
+import close from 'bootstrap-icons/icons/x-lg.svg?raw';
+import hotel from 'bootstrap-icons/icons/building.svg?raw';
+import restaurant from 'bootstrap-icons/icons/cup-hot.svg?raw';
+import shop from 'bootstrap-icons/icons/shop.svg?raw';
+import lightning from 'bootstrap-icons/icons/lightning-charge.svg?raw';
+import pause from 'bootstrap-icons/icons/pause.svg?raw';
+import play from 'bootstrap-icons/icons/play-fill.svg?raw';
+
+const icons = { arrow, 'arrow-up': arrowUp, copy, check, person, business, plus, chevron, eye, lock, close, hotel, restaurant, shop, lightning, pause, play };
+interface Props {
+	name: keyof typeof icons;
+	size?: number;
+}
+const { name, size = 18, ...rest } = Astro.props;
+// Only trusted, locally installed Bootstrap SVGs are inlined; no icon font or CDN is needed.
+const svg = icons[name];
+const content = svg.slice(svg.indexOf('>') + 1, svg.lastIndexOf('</svg>'));
+---
+<svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" data-icon={name} {...rest}><Fragment set:html={content} /></svg>

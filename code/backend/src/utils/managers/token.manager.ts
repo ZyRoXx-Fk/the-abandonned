@@ -2,6 +2,10 @@ import jwt, { JwtPayload, SignOptions } from "jsonwebtoken";
 import crypto from "crypto";
 
 export class TokenManager {
+  static assertConfigured(): void {
+    void this.accessSecret;
+  }
+
   private static get accessSecret(): string {
     const secret = process.env.JWT_SECRET || process.env.ACCESS_TOKEN_SECRET;
     if (!secret) {

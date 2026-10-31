@@ -1,0 +1,79 @@
+---
+import { defaultLocale, translations, type Locale } from '../i18n';
+import Icon from './Icon.astro';
+interface Props { locale?: Locale; }
+const { locale = defaultLocale } = Astro.props;
+const t = translations(locale).discovery;
+const categoryIcons = ['hotel', 'restaurant', 'shop'] as const;
+---
+<div class="discovery-heading" data-discovery-heading>
+	<h1 id="hero-title">
+		<span class="screen-reader-text">{t.accessible}</span>
+		<span class="visual-heading" aria-hidden="true">
+			<span class="heading-start">
+				<span>{t.start}</span>
+				<span class="word-window">
+					<span class="word-track">
+						{[...t.categories, t.categories[0]].map((category, index) => <span><span class="category-label">{category}</span><span class="category-icon"><Icon name={categoryIcons[index % categoryIcons.length]} size={26} /></span></span>)}
+					</span>
+				</span>
+			</span>
+			<span class="heading-end">{t.end}</span>
+		</span>
+	</h1>
+	<button class="motion-control" type="button" aria-label={t.pause} aria-pressed="false" title={t.pause} data-pause-label={t.pause} data-resume-label={t.resume} hidden>
+		<span class="pause-symbol"><Icon name="pause" size={16} /></span><span class="play-symbol"><Icon name="play" size={14} /></span>
+	</button>
+</div>
+
+<script>
+	const heading = document.querySelector<HTMLElement>('[data-discovery-heading]');
+	const control = heading?.querySelector<HTMLButtonElement>('.motion-control');
+	if (heading && control) {
+		heading.dataset.animated = 'true';
+		control.hidden = false;
+		control.addEventListener('click', () => {
+			const paused = heading.dataset.paused !== 'true';
+			heading.dataset.paused = String(paused);
+			control.setAttribute('aria-pressed', String(paused));
+			control.title = (paused ? control.dataset.resumeLabel : control.dataset.pauseLabel) || '';
+		});
+	}
+</script>
+
+<style>
+	.discovery-heading { display: flex; align-items: flex-end; gap: 12px; }
+	h1 { font-size: 42px; line-height: 1.25; font-weight: 500; letter-spacing: -1.8px; }
+	.visual-heading, .heading-end { display: block; }
+	.heading-start { display: flex; align-items: baseline; gap: .22em; }
+	.word-window { display: inline-block; height: 1.25em; overflow: hidden; vertical-align: bottom; color: var(--accent); }
+	.word-track { display: grid; line-height: 1.25; }
+	.word-track > span { display: flex; align-items: center; gap: .22em; height: 1.25em; white-space: nowrap; padding-right: .06em; }
+	.category-icon { display: inline-grid; place-items: center; width: .65em; height: .65em; }
+	.category-icon > svg { width: 100%; height: 100%; }
+	[data-animated] .word-track { animation: category-swipe 10.8s cubic-bezier(.76, 0, .24, 1) infinite; }
+	[data-paused='true'] .word-track { animation-play-state: paused; }
+	.motion-control { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; margin-bottom: 9px; padding: 0; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 3px; }
+	.motion-control:hover { color: var(--ink); border-color: var(--line); }
+	.play-symbol { display: none; }
+	[data-paused='true'] .play-symbol { display: block; }
+	[data-paused='true'] .pause-symbol { display: none; }
+	.screen-reader-text { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+	@keyframes category-swipe {
+		0%, 27% { transform: translateY(0); }
+		33.333%, 60.333% { transform: translateY(-25%); }
+		66.666%, 93.666% { transform: translateY(-50%); }
+		100% { transform: translateY(-75%); }
+	}
+	@media (max-width: 600px) {
+		h1 { font-size: 34px; letter-spacing: -1.3px; }
+		.heading-start { display: block; }
+		.word-window { display: block; width: max-content; }
+		.motion-control { margin-bottom: 7px; }
+	}
+	@media (max-width: 370px) { h1 { font-size: 30px; letter-spacing: -1px; } .discovery-heading { gap: 8px; } }
+	@media (prefers-reduced-motion: reduce) {
+		[data-animated] .word-track { animation: none; transform: none; }
+		.motion-control { display: none; }
+	}
+</style>
