@@ -1,0 +1,39 @@
+header: "[<scope>][<type>]: <message>"
+
+scope:
+  - "BACKEND"
+  - "DEVOPS"
+  - "MERGE"
+  - "FRONTEND"
+
+type:
+  - Add: "+"
+  - Modify: "~"
+  - Fix: "!"
+  - Delete: "-"
+
+body: |-
+  {{- if .Description }}
+  {{ println .Description }}
+  {{- end }}
+  {{- if .Added }}
+  Added:
+  {{- range .Added }}
+    {{ . }}
+  {{- end }}
+  {{- end }}
+
+  {{- if .Modified }}
+  {{ print "" }}
+  Modified:
+  {{- range .Modified }}
+    {{ . }}
+  {{- end }}
+  {{- end }}
+  {{- if .Deleted }}
+  {{ print "" }}
+  Deleted:
+  {{- range .Deleted }}
+    {{ . }}
+  {{- end }}
+  {{- end }}
