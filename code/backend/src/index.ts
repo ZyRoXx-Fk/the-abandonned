@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import dotenv from "dotenv";
+import { connectDatabase, disconnectDatabase, isDatabaseConnected } from "./config/database.js";
 
 dotenv.config();
 
@@ -13,17 +14,16 @@ export async function buildApp() {
     logger: true,
   });
 
-  // Enable CORS for web frontend
   await app.register(cors, {
     origin: [frontendUrl, "http://localhost:3000", "http://127.0.0.1:3000"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     credentials: true,
   });
 
-  // Healthcheck endpoint
   app.get("/health", async () => {
     return {
       status: "ok",
+      database: isDatabaseConnected() ? "connected" : "disconnected",
       timestamp: new Date().toISOString(),
       service: "the-abandonned-backend",
       version: "1.0.0",
@@ -35,16 +35,27 @@ export async function buildApp() {
 
 async function start() {
   try {
+    await connectDatabase();
+
     const app = await buildApp();
     await app.listen({ port, host });
     app.log.info(`Server ready and listening at http://${host}:${port}`);
+
+    const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+    for (const signal of signals) {
+      process.on(signal, async () => {
+        app.log.info(`Received ${signal}. Shutting down gracefully...`);
+        await app.close();
+        await disconnectDatabase();
+        process.exit(0);
+      });
+    }
   } catch (err) {
     console.error("Error starting server:", err);
     process.exit(1);
   }
 }
 
-// Start server when run directly
 if (process.env.NODE_ENV !== "test") {
   start();
 }
