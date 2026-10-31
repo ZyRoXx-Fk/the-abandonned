@@ -29,7 +29,7 @@ export class LinkTokenService {
       expiresAt,
     });
 
-    const prompt = `Initialisation MCP. Je suis l'entité ${owner.firstName} ${owner.lastName}. Mon token de liaison est : ${token}. Démarrons la configuration de mon restaurant.`;
+    const prompt = `MCP Initialization. I am the entity ${owner.firstName} ${owner.lastName}. My link token is: ${token}. Let's start configuring my restaurant profile.`;
 
     return {
       token,

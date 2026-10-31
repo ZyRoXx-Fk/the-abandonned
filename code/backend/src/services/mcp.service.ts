@@ -3,11 +3,13 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { mcpSessionManager, McpSessionManager } from "../utils/managers/mcp-session.manager.js";
 import { linkTokenService, LinkTokenService } from "./link-token.service.js";
 import { businessRepository, BusinessRepository } from "../repositories/business.repository.js";
+import { auditService, AuditService } from "./audit.service.js";
 import {
   linkOwnerSessionInputShape,
   LinkOwnerSessionDTO,
   LinkOwnerSessionResultDTO,
 } from "../schemas/mcp.schema.js";
+import { auditWebsiteInputShape } from "../schemas/audit.schema.js";
 import { randomUUID } from "crypto";
 import { ServerResponse, IncomingMessage } from "http";
 
@@ -19,7 +21,8 @@ export class McpService {
   constructor(
     private readonly sessionManager: McpSessionManager = mcpSessionManager,
     private readonly linkTokens: LinkTokenService = linkTokenService,
-    private readonly businessRepo: BusinessRepository = businessRepository
+    private readonly businessRepo: BusinessRepository = businessRepository,
+    private readonly auditor: AuditService = auditService
   ) {
     this.server = new McpServer(
       {
@@ -71,7 +74,7 @@ export class McpService {
   private setupTools(): void {
     this.server.tool(
       "link_owner_session",
-      "Lie la session courante du restaurateur à son compte certifié sur la plateforme web via son token de liaison (ex: TRUST-9B3C2A).",
+      "Links the current AI agent session to the certified business owner account on the web platform using the link token (e.g. TRUST-9B3C2A).",
       linkOwnerSessionInputShape,
       async (args, extra) => {
         try {
@@ -90,7 +93,36 @@ export class McpService {
             content: [
               {
                 type: "text",
-                text: error?.message || "Erreur lors de la liaison de la session propriétaire",
+                text: error?.message || "Error linking owner session",
+              },
+            ],
+          };
+        }
+      }
+    );
+
+    this.server.tool(
+      "audit_website",
+      "Audits the legacy restaurant website, detects outdated structure (legacy), identifies missing data for AI agents (terrace, pets, seating capacity), and proposes a draft MCP profile.",
+      auditWebsiteInputShape,
+      async (args) => {
+        try {
+          const result = await this.auditor.auditWebsite(args);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (error: any) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: error?.message || "Error auditing restaurant website",
               },
             ],
           };
@@ -120,12 +152,12 @@ export class McpService {
 
     const businessNotice =
       formattedBusinesses.length > 0
-        ? `Établissement(s) associé(s) : ${formattedBusinesses.map((b) => `${b.name} (${b.trustStatus})`).join(", ")}.`
-        : "Aucun établissement enregistré pour le moment. Vous pouvez auditer votre site web actuel avec l'outil 'audit_website' ou configurer votre profil avec 'save_business_profile'.";
+        ? `Associated business(es): ${formattedBusinesses.map((b) => `${b.name} (${b.trustStatus})`).join(", ")}.`
+        : "No registered business yet. You can audit your current website using the 'audit_website' tool or configure your profile with 'save_business_profile'.";
 
     return {
       success: true,
-      message: `Session certifiée avec succès pour ${consumptionResult.owner.firstName} ${consumptionResult.owner.lastName}. ${businessNotice}`,
+      message: `Session successfully certified for ${consumptionResult.owner.firstName} ${consumptionResult.owner.lastName}. ${businessNotice}`,
       owner: consumptionResult.owner,
       businesses: formattedBusinesses,
       sessionId: effectiveSessionId,
