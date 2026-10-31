@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import { connectDatabase, disconnectDatabase, isDatabaseConnected } from "./config/database.js";
+import { authRoutes } from "./routes/auth.routes.js";
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ export async function buildApp() {
     credentials: true,
   });
 
+  // Healthcheck
   app.get("/health", async () => {
     return {
       status: "ok",
@@ -29,6 +31,9 @@ export async function buildApp() {
       version: "1.0.0",
     };
   });
+
+  // Authentication routes
+  await app.register(authRoutes, { prefix: "/api/auth" });
 
   return app;
 }
