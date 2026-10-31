@@ -3,7 +3,11 @@ import crypto from "crypto";
 
 export class TokenManager {
   private static get accessSecret(): string {
-    return process.env.JWT_SECRET || process.env.ACCESS_TOKEN_SECRET || "super_secret_jwt_key_baselhack_2026";
+    const secret = process.env.JWT_SECRET || process.env.ACCESS_TOKEN_SECRET;
+    if (!secret) {
+      throw new Error("JWT_SECRET or ACCESS_TOKEN_SECRET is not defined");
+    }
+    return secret;
   }
 
   static async generateToken(payload: object, expiresIn: string = "7d"): Promise<string> {
