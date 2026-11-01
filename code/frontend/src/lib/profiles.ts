@@ -1,12 +1,12 @@
-import { buildInstallationPrompt } from './connection-prompts.ts';
+import { buildInstallationPrompt, DEFAULT_MCP_URL } from './connection-prompts.ts';
 import { createPairingRequester } from './pairing-api.ts';
 import type { Locale } from '../i18n';
 
 export type Role = 'client' | 'business';
 export type AuthAction = 'login' | 'register';
 
-const clientUrl = import.meta.env.PUBLIC_MCP_CLIENT_URL?.trim() || '';
-const businessUrl = import.meta.env.PUBLIC_MCP_BUSINESS_URL?.trim() || '';
+const clientUrl = import.meta.env.PUBLIC_MCP_CLIENT_URL?.trim() || DEFAULT_MCP_URL;
+const businessUrl = import.meta.env.PUBLIC_MCP_BUSINESS_URL?.trim() || DEFAULT_MCP_URL;
 
 export const profiles = {
 	client: {
