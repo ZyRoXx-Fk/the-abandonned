@@ -13,7 +13,7 @@ import type { CustomerActionInput, ProposalView } from '../../src/schemas/action
 import { RelayError } from '../../src/utils/relay-error.js';
 import type { BusinessCategory } from '../../src/schemas/relay.schema.js';
 
-export type CommitStorage = { catalog: CatalogRepository; proposals: ProposalRepository; transactions: Pick<TransactionRepository, 'insertAction' | 'getCustomerAction' | 'appendEvent' | 'listOwnerActions'>; uow: UnitOfWork; close?: () => Promise<void> };
+export type CommitStorage = { catalog: CatalogRepository; proposals: ProposalRepository; transactions: Pick<TransactionRepository, 'insertAction' | 'getCustomerAction' | 'appendEvent' | 'listOwnerActions' | 'getReservationRecord' | 'amendReservation'>; uow: UnitOfWork; close?: () => Promise<void> };
 export const client = { role: 'client' as const, userId: 'client_one' };
 export const foreign = { role: 'client' as const, userId: 'client_two' };
 export const approve = (p: ProposalView) => ({ proposalId: p.id, revision: p.revision, approved: true as const });

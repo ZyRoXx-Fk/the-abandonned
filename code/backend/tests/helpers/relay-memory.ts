@@ -1,15 +1,15 @@
 import mongoose from 'mongoose';
 import type { CatalogRepository, InventoryRecord } from '../../src/repositories/catalog.repository.js';
-import { inventoryKeyForInput } from '../../src/repositories/catalog.repository.js';
+import { inventoryKeyForInput, inventoryKeyForRestaurantSlot, inventoryKeyForRoomNight } from '../../src/repositories/catalog.repository.js';
 import type { ProposalRepository } from '../../src/repositories/proposal.repository.js';
 import type { TransactionRepository } from '../../src/repositories/transaction.repository.js';
 import type { UnitOfWork } from '../../src/repositories/unit-of-work.js';
 import { businessDraftSchema, publicBusinessSchema, businessPageSchema, businessQuerySchema, type BusinessDraft, type PublicBusiness } from '../../src/schemas/catalog.schema.js';
-import { commitResultSchema, proposalRecordSchema, type ProposalRecord, type CommitResult } from '../../src/schemas/action.schema.js';
+import { actionRecordSchema, commitResultSchema, proposalRecordSchema, type ProposalRecord, type CommitResult, type ActionRecord } from '../../src/schemas/action.schema.js';
 import { RelayError } from '../../src/utils/relay-error.js';
 
 // Serialized, snapshot/rollback transactions; deliberately not evidence of Mongo concurrency.
-type MemoryAction = { clientId?: string; ownerId: string; businessId: string; createdAt: string; result: import('../../src/schemas/action.schema.js').ActionResult };
+type MemoryAction = { clientId?: string; ownerId: string; businessId: string; createdAt: string; proposalId?: string; allocations?: ActionRecord['allocations']; result: import('../../src/schemas/action.schema.js').ActionResult };
 export function createRelayMemory(initialActions: MemoryAction[] = []) {
   let drafts = new Map<string, BusinessDraft>();
   let businesses = new Map<string, { ownerId: string; value: PublicBusiness }>();
@@ -103,13 +103,13 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
     async getCommittedResult(id) { return copy(results.get(id) ?? null); },
     async markCommitted(id, revision, result) { const p = proposals.get(id); if (!p || p.revision !== revision || p.state !== 'pending') return false; p.state = 'committed'; p.revision++; p.durableResultRef = `result_${id}`; results.set(id, commitResultSchema.parse(result)); return true; },
   };
-  const transactions: Pick<TransactionRepository, "appendEvent" | "listOwnerActions" | "insertAction" | "getCustomerAction"> = {
+  const transactions: Pick<TransactionRepository, "appendEvent" | "listOwnerActions" | "insertAction" | "getCustomerAction" | "getReservationRecord" | "amendReservation"> = {
     async insertAction(principal, proposal) {
       if (proposal.kind !== 'order' && proposal.kind !== 'restaurant_booking' && proposal.kind !== 'hotel_booking') throw new Error('Customer action required');
       const result = commitResultSchema.parse({ id: `action_${proposal.id}`, reference: `DEMO-${proposal.id}`, kind: proposal.kind,
         revision: 0, status: 'confirmed', paymentStatus: proposal.kind === 'restaurant_booking' ? 'not_applicable' : 'not_collected_demo', summary: proposal.summary });
       if (result.kind === 'publication') throw new Error('Customer result required');
-      actions.push({ ownerId: businesses.get(proposal.summary.businessId)!.ownerId, businessId: proposal.summary.businessId, createdAt: new Date().toISOString(), clientId: principal.userId, result });
+      actions.push({ ownerId: businesses.get(proposal.summary.businessId)!.ownerId, businessId: proposal.summary.businessId, createdAt: new Date().toISOString(), clientId: principal.userId, result, proposalId: proposal.id, allocations: proposal.kind === 'restaurant_booking' ? [{ key: inventoryKeyForRestaurantSlot(proposal.summary.businessId, proposal.summary.slotId), delta: proposal.summary.partySize }] : proposal.kind === 'hotel_booking' ? proposal.summary.nights.map(n => ({ key: inventoryKeyForRoomNight(proposal.summary.businessId, proposal.summary.roomTypeId, n), delta: 1 })) : [] });
       return copy(result);
     },
     async getCustomerAction(clientId, id) { return copy(actions.find(a => a.clientId === clientId && a.result.id === id)?.result ?? null); },
@@ -117,6 +117,23 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
       return actions.filter(a => a.ownerId === ownerId && a.businessId === businessId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.result.id.localeCompare(a.result.id))
         .slice(offset, offset + limit).map(a => structuredClone(a.result));
+    },
+    async getReservationRecord(clientId, id) {
+      const a = actions.find(a => a.clientId === clientId && a.result.id === id && a.result.kind !== 'order');
+      return a ? actionRecordSchema.parse({ clientId, businessId: a.businessId, proposalId: a.proposalId, result: a.result, allocations: a.allocations }) : null;
+    },
+    async amendReservation(clientId, id, expected, proposal) {
+      const a = actions.find(a => a.clientId === clientId && a.result.id === id && a.result.kind !== 'order');
+      if (!a) throw new RelayError('NOT_FOUND', 'Reservation not found');
+      if (a.result.revision !== expected) throw new RelayError('STALE_REVISION', 'Reservation changed');
+      if (proposal.kind !== 'reservation_amendment') throw new RelayError('VALIDATION_ERROR', 'Amendment required');
+      const { reservationId: _id, expectedReservationRevision: _revision, ...summary } = proposal.summary.summary;
+      if (summary.kind !== a.result.kind || summary.businessId !== a.businessId || (summary.kind === 'hotel_booking' && a.result.summary.kind === 'hotel_booking' && summary.roomTypeId !== a.result.summary.roomTypeId)) throw new RelayError('VALIDATION_ERROR', 'Immutable reservation scope');
+      const result = commitResultSchema.parse({ ...a.result, revision: expected + 1, summary });
+      if (result.kind === 'publication') throw new Error('Action expected');
+      a.result = result; a.proposalId = proposal.id;
+      a.allocations = summary.kind === 'restaurant_booking' ? [{ key: inventoryKeyForRestaurantSlot(summary.businessId, summary.slotId), delta: summary.partySize }] : summary.nights.map(n => ({ key: inventoryKeyForRoomNight(summary.businessId, summary.roomTypeId, n), delta: 1 }));
+      return copy(result);
     },
     async appendEvent(principal, proposal, result) { events.push(copy({ principal, proposal, result })); },
   };
