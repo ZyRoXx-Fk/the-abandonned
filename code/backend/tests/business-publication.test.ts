@@ -70,3 +70,29 @@ test('category, final price/currency, overlapping slots and references are valid
   const preview = await s.publication.preview(owner, d.id);
   assert.equal(preview.proposal, null); assert.ok(preview.missingFields.some(f => f.path.startsWith('inventoryEdits.')));
 });
+
+for (const category of ['restaurant', 'shop'] as const) {
+  test(`${category} draft/publication path rejects ambiguous variant IDs and preserves distinct scoped prices`, async () => {
+    const storage = createRelayMemory(); const s = services(storage);
+    let d = await s.drafts.create(owner, category);
+    d = await s.drafts.patch(owner, d.id, d.revision, { profile: profile(category) });
+    const input = offering(category);
+    if (input.kind === 'room_type') throw new Error('Expected a sellable offering fixture');
+    const regular = input.variants[0]!;
+    const ambiguous = { ...input, variants: [regular, { ...regular, unitPrice: { ...regular.unitPrice, amountMinor: 2000 } }] };
+    await assert.rejects(s.drafts.putOffering(owner, d.id, d.revision, ambiguous));
+    await assert.rejects(s.drafts.patch(owner, d.id, d.revision, { offeringEdits: { upsert: [ambiguous], removeIds: [] } }));
+    await assert.rejects(storage.catalog.insertDraft({ ...d, id: 'invalid_stored_draft', offerings: [ambiguous] }));
+    assert.deepEqual(await s.drafts.get(owner, d.id), d);
+    assert.equal((await s.publication.preview(owner, d.id)).proposal, null);
+    assert.equal(await storage.catalog.getPublished(d.businessId), null);
+    const distinct = { ...input, variants: [regular, { ...regular, id: 'large', unitPrice: { ...regular.unitPrice, amountMinor: 2000 } }] };
+    d = await s.drafts.putOffering(owner, d.id, d.revision, distinct);
+    d = await s.drafts.putOffering(owner, d.id, d.revision, { ...input, id: 'another_item' });
+    const p = (await s.publication.preview(owner, d.id)).proposal!;
+    assert.ok(p);
+    await s.publication.commit(owner, { proposalId: p.id, revision: p.revision, approved: true });
+    const published = (await storage.catalog.getPublished(d.businessId))!;
+    assert.deepEqual(published.offerings, d.offerings);
+  });
+}

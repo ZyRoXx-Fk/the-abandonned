@@ -115,13 +115,27 @@ const sellableVariantSchema = z.object({
   metadata: z.array(metadataEntrySchema).max(20).default([]),
 }).strict();
 
+const sellableVariantsSchema = z.array(sellableVariantSchema).min(1).max(50).superRefine((variants, ctx) => {
+  const ids = new Set<string>();
+  variants.forEach((variant, index) => {
+    if (ids.has(variant.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [index, "id"],
+        message: "Variant IDs must be unique within an offering",
+      });
+    }
+    ids.add(variant.id);
+  });
+});
+
 const menuItemOfferingSchema = z.object({
   kind: z.literal("menu_item"),
   id: relayIdSchema,
   active: z.boolean(),
   name: boundedText(120),
   description: boundedText(2000).optional(),
-  variants: z.array(sellableVariantSchema).min(1).max(50),
+  variants: sellableVariantsSchema,
   metadata: z.array(metadataEntrySchema).max(20).default([]),
 }).strict();
 
@@ -142,7 +156,7 @@ const productOfferingSchema = z.object({
   active: z.boolean(),
   name: boundedText(120),
   description: boundedText(2000).optional(),
-  variants: z.array(sellableVariantSchema).min(1).max(50),
+  variants: sellableVariantsSchema,
   metadata: z.array(metadataEntrySchema).max(20).default([]),
 }).strict();
 

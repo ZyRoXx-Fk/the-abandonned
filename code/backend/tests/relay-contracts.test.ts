@@ -464,3 +464,40 @@ test("RelayError exposes stable code, message and details", () => {
   assert.equal(error.message, "Published terms changed");
   assert.deepEqual(error.details, { nextAction: "review_and_approve" });
 });
+
+for (const kind of ["menu_item", "product"] as const) {
+  test(`offeringInputSchema rejects repeated ${kind} variant IDs even with identical prices`, () => {
+    const variant = { id: "regular", name: "Regular", unitPrice: { amountMinor: 1000, currency: "EUR" } };
+    const offering = { kind, id: "item", active: true, name: "Item", variants: [variant] };
+    for (const amountMinor of [1000, 2000]) {
+      const repeated = { ...offering, variants: [variant, { ...variant, unitPrice: { amountMinor, currency: "EUR" } }] };
+      const result = offeringInputSchema.safeParse(repeated);
+      assert.equal(result.success, false, `Repeated IDs must fail at price ${amountMinor}`);
+      if (!result.success) assert.ok(result.error.issues.some(issue => issue.path.join(".") === "variants.1.id"));
+    }
+    assert.equal(offeringInputSchema.safeParse({ ...offering, variants: [variant, { ...variant, id: "large" }] }).success, true);
+  });
+
+  test(`businessDraftSchema and publicBusinessSchema reject ambiguous ${kind} variants without global variant uniqueness`, () => {
+    const variant = { id: "regular", name: "Regular", unitPrice: { amountMinor: 1000, currency: "EUR" } };
+    const offering = { kind, id: "item", active: true, name: "Item", variants: [variant] };
+    const category = kind === "menu_item" ? "restaurant" : "shop";
+    const profile = {
+      name: "Owner business", address: "1 Main Street", description: "Owner supplied description",
+      contact: { email: "owner@example.com" }, timezone: "Europe/Paris", currency: "EUR",
+      openingHours: [{ day: "monday", intervals: [{ startTime: "09:00", endTime: "18:00" }] }],
+      serviceHours: [{ id: "service", label: "Service", days: ["monday"], startTime: "09:00", endTime: "18:00" }],
+      finalPriceDescription: "All taxes included", policies: ["Pickup only"],
+      categoryConfig: category === "restaurant" ? { kind: category, cuisine: "French" } : { kind: category },
+    };
+    const common = { businessId: "business", category, revision: 0, profile, updatedAt: "2027-01-01T00:00:00Z" };
+    const draft = { ...common, id: "draft", ownerId: "owner", inventoryEdits: [], auditTrail: [], createdAt: common.updatedAt };
+    const published = { ...common, availability: [], publishedAt: common.updatedAt };
+    const ambiguous = { ...offering, variants: [variant, { ...variant, unitPrice: { amountMinor: 2000, currency: "EUR" } }] };
+    assert.equal(businessDraftSchema.safeParse({ ...draft, offerings: [ambiguous] }).success, false);
+    assert.equal(publicBusinessSchema.safeParse({ ...published, offerings: [ambiguous] }).success, false);
+    const scoped = [offering, { ...offering, id: "another_item" }];
+    assert.equal(businessDraftSchema.safeParse({ ...draft, offerings: scoped }).success, true);
+    assert.equal(publicBusinessSchema.safeParse({ ...published, offerings: scoped }).success, true);
+  });
+}
