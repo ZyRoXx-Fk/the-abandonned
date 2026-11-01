@@ -9,7 +9,7 @@ import { commitResultSchema, proposalRecordSchema, type ProposalRecord, type Com
 import { RelayError } from '../../src/utils/relay-error.js';
 
 // Serialized, snapshot/rollback transactions; deliberately not evidence of Mongo concurrency.
-type MemoryAction = { ownerId: string; businessId: string; createdAt: string; result: import('../../src/schemas/action.schema.js').ActionResult };
+type MemoryAction = { clientId?: string; ownerId: string; businessId: string; createdAt: string; result: import('../../src/schemas/action.schema.js').ActionResult };
 export function createRelayMemory(initialActions: MemoryAction[] = []) {
   let drafts = new Map<string, BusinessDraft>();
   let businesses = new Map<string, { ownerId: string; value: PublicBusiness }>();
@@ -17,7 +17,7 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
   let proposals = new Map<string, ProposalRecord>();
   let results = new Map<string, CommitResult>();
   let events: unknown[] = [];
-  const actions = structuredClone(initialActions);
+  let actions = structuredClone(initialActions);
   const copy = structuredClone;
   let tail: Promise<unknown> = Promise.resolve();
   const tx = new mongoose.mongo.MongoClient('mongodb://127.0.0.1:27017').startSession();
@@ -25,9 +25,9 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
     async assertSupported() {},
     async run(work) {
       const run = tail.then(async () => {
-        const snapshot = copy({ drafts, businesses, inventory, proposals, results, events });
+        const snapshot = copy({ drafts, businesses, inventory, proposals, results, events, actions });
         try { return await work(tx); }
-        catch (e) { ({ drafts, businesses, inventory, proposals, results, events } = snapshot); throw e; }
+        catch (e) { ({ drafts, businesses, inventory, proposals, results, events, actions } = snapshot); throw e; }
       });
       tail = run.catch(() => undefined); return run;
     },
@@ -37,6 +37,7 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
     async listDrafts(ownerId, offset, limit) { return copy([...drafts.values()].filter(d => d.ownerId === ownerId).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)).slice(Math.max(0, offset), Math.max(0, offset) + Math.min(50, limit > 0 ? limit : 10))); },
     async insertDraft(draft) { if (drafts.has(draft.id)) throw new Error('Duplicate draft'); drafts.set(draft.id, businessDraftSchema.parse(draft)); },
     async replaceDraft(draft, expected) { const d = drafts.get(draft.id); if (!d || d.ownerId !== draft.ownerId || d.revision !== expected) return false; drafts.set(draft.id, businessDraftSchema.parse(draft)); return true; },
+    async fencePublished(id, expected) { return businesses.get(id)?.value.revision === expected; },
     async fenceDraft(ownerId, id, expected) { const d = drafts.get(id); return d?.ownerId === ownerId && d.revision === expected; },
     async getPublished(id) { return copy(businesses.get(id)?.value ?? null); },
     async searchPublished(query) {
@@ -102,7 +103,16 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
     async getCommittedResult(id) { return copy(results.get(id) ?? null); },
     async markCommitted(id, revision, result) { const p = proposals.get(id); if (!p || p.revision !== revision || p.state !== 'pending') return false; p.state = 'committed'; p.revision++; p.durableResultRef = `result_${id}`; results.set(id, commitResultSchema.parse(result)); return true; },
   };
-  const transactions: Pick<TransactionRepository, "appendEvent" | "listOwnerActions"> = {
+  const transactions: Pick<TransactionRepository, "appendEvent" | "listOwnerActions" | "insertAction" | "getCustomerAction"> = {
+    async insertAction(principal, proposal) {
+      if (proposal.kind !== 'order' && proposal.kind !== 'restaurant_booking' && proposal.kind !== 'hotel_booking') throw new Error('Customer action required');
+      const result = commitResultSchema.parse({ id: `action_${proposal.id}`, reference: `DEMO-${proposal.id}`, kind: proposal.kind,
+        revision: 0, status: 'confirmed', paymentStatus: proposal.kind === 'restaurant_booking' ? 'not_applicable' : 'not_collected_demo', summary: proposal.summary });
+      if (result.kind === 'publication') throw new Error('Customer result required');
+      actions.push({ ownerId: businesses.get(proposal.summary.businessId)!.ownerId, businessId: proposal.summary.businessId, createdAt: new Date().toISOString(), clientId: principal.userId, result });
+      return copy(result);
+    },
+    async getCustomerAction(clientId, id) { return copy(actions.find(a => a.clientId === clientId && a.result.id === id)?.result ?? null); },
     async listOwnerActions(ownerId, businessId, offset, limit) {
       return actions.filter(a => a.ownerId === ownerId && a.businessId === businessId)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.result.id.localeCompare(a.result.id))

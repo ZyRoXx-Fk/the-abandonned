@@ -68,6 +68,7 @@ export interface CatalogRepository {
   insertDraft(draft: BusinessDraft): Promise<void>;
   replaceDraft(draft: BusinessDraft, expectedRevision: number): Promise<boolean>;
   // A write in the publishing transaction, not a snapshot-only revision check.
+  fencePublished(businessId: string, expectedRevision: number, tx: ClientSession): Promise<boolean>;
   fenceDraft(ownerId: string, draftId: string, expectedRevision: number, tx: ClientSession): Promise<boolean>;
   getPublished(businessId: string, tx?: ClientSession): Promise<PublicBusiness | null>;
   searchPublished(query: BusinessQuery): Promise<BusinessPage>;
@@ -382,6 +383,15 @@ export class MongoCatalogRepository implements CatalogRepository {
       },
     );
 
+    return result.modifiedCount === 1;
+  }
+
+  async fencePublished(businessId: string, expectedRevision: number, tx: ClientSession): Promise<boolean> {
+    // An actual write shares publication's document lock without changing public terms/freshness.
+    const result = await this.businesses.updateOne(
+      { ...publishedBusinessFilter, relayBusinessId: businessId, relayRevision: expectedRevision },
+      { $inc: { relayCommitFence: 1 } }, { session: tx, timestamps: false },
+    );
     return result.modifiedCount === 1;
   }
 

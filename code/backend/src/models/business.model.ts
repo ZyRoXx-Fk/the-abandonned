@@ -30,6 +30,7 @@ export interface IBusiness extends Document {
   relayOwnerId?: string;
   relayCategory?: BusinessCategory;
   relayRevision?: number;
+  relayCommitFence?: number;
   relayProfile?: BusinessProfile;
   relayPublishedAt?: string;
   relayUpdatedAt?: string;
@@ -101,6 +102,7 @@ const businessSchema = new Schema<IBusiness>(
       trim: true,
       index: true,
     },
+    relayCommitFence: { type: Number, default: 0 },
     relayRevision: {
       type: Number,
       min: 0,

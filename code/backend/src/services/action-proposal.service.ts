@@ -23,7 +23,7 @@ function stayNights(checkIn: string, checkOut: string): string[] {
   if (count < 1 || count > 60) invalid('A stay must contain between 1 and 60 local nights.');
   return enumerateNights(checkIn, checkOut);
 }
-function inventoryDemand(input: CustomerActionInput): Array<{ key: string; quantity: number }> {
+export function inventoryDemand(input: CustomerActionInput): Array<{ key: string; quantity: number }> {
   switch (input.kind) {
     case 'order': return input.items.map(i => ({ key: inventoryKeyForVariant(input.businessId, i.offeringId, i.variantId), quantity: i.quantity }));
     case 'restaurant_booking': return [{ key: inventoryKeyForRestaurantSlot(input.businessId, input.slotId), quantity: input.partySize }];
@@ -114,7 +114,7 @@ export function validateActionTime(business: PublicBusiness, summary: ActionSumm
   } else if (summary.checkIn < localNow.date) invalid('Check-in cannot be in the local past.');
 }
 
-function requireClient(client: Principal): void {
+export function requireClient(client: Principal): void {
   const parsed = principalSchema.safeParse(client);
   if (!parsed.success) throw new RelayError('AUTH_REQUIRED', 'An authenticated client principal is required.');
   if (parsed.data.role !== 'client') throw new RelayError('FORBIDDEN', 'A client principal is required.');
@@ -123,7 +123,7 @@ function viewOf(record: ProposalRecord): ProposalView {
   const { principal: _principal, durableResultRef: _ref, ...view } = record;
   return proposalViewSchema.parse(view);
 }
-function observedAvailability(rows: InventoryRecord[]): PublicBusiness['availability'] {
+export function observedAvailability(rows: InventoryRecord[]): PublicBusiness['availability'] {
   return rows.map(i => i.kind === 'sellable_variant' ? { kind: i.kind, offeringId: i.offeringId, variantId: i.variantId, availableUnits: i.remainingUnits, updatedAt: i.updatedAt }
     : i.kind === 'room_night' ? { kind: i.kind, roomTypeId: i.roomTypeId, localNight: i.localNight, availableRooms: i.totalCapacity - i.allocatedCapacity, updatedAt: i.updatedAt }
       : { kind: i.kind, slotId: i.slotId, slotDate: i.slotDate, startTime: i.startTime, endTime: i.endTime, minPartySize: i.minPartySize, maxPartySize: i.maxPartySize, availableSeats: i.totalCapacity - i.allocatedCapacity, updatedAt: i.updatedAt });
