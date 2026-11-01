@@ -17,7 +17,7 @@ COPY public ./public
 COPY tests ./tests
 RUN pnpm test && pnpm build
 
-FROM nginxinc/nginx-unprivileged:stable-alpine AS runtime
+FROM nginx/nginx-unprivileged:stable-alpine AS runtime
 ENV PORT=8080 \
     BACKEND_ORIGIN=https://relay-backend-latest.onrender.com \
     NGINX_ENVSUBST_FILTER="^(PORT|BACKEND_ORIGIN)$"
