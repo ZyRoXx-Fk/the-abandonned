@@ -6,7 +6,7 @@ import { inventoryKeyForInput } from '../../src/repositories/catalog.repository.
 import type { BusinessCategory } from '../../src/schemas/relay.schema.js';
 import type { InventoryInput } from '../../src/schemas/catalog.schema.js';
 
-export type PublicationStorage = ReturnType<typeof createRelayMemory> & { close?: () => Promise<void> };
+export type PublicationStorage = Pick<ReturnType<typeof createRelayMemory>, 'catalog' | 'proposals' | 'transactions' | 'uow'> & { close?: () => Promise<void> };
 export function publicationContracts(label: string, build: () => Promise<PublicationStorage>) {
   for (const category of ['restaurant', 'hotel', 'shop'] as const) {
     test(`${label}: ${category} profile-only publication preserves all consumed live inventory; stale replenishment rolls back`, async t => {

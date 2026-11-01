@@ -1,6 +1,7 @@
+import type { Readable } from 'node:stream';
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFile as execFileCallback, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile as execFileCallback, spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -112,14 +113,14 @@ async function docker(args: string[]): Promise<void> {
 
 async function waitForStandaloneMongo(
   uri: string,
-  process?: ChildProcessWithoutNullStreams,
+  process?: ChildProcessByStdio<null, Readable, Readable>,
   lastOutput?: () => string,
 ): Promise<void> {
   const deadline = Date.now() + 30000;
 
   while (Date.now() < deadline) {
     if (process && process.exitCode !== null) {
-      const output = lastOutput?.().trim();
+      const output = lastOutput?.().trim() ?? "";
       throw new Error(output.length > 0
         ? `Standalone MongoDB exited before readiness: ${output}`
         : `Standalone MongoDB exited before readiness with code ${process.exitCode}`);
@@ -138,7 +139,7 @@ async function waitForStandaloneMongo(
 }
 
 async function stopNativeStandaloneMongo(
-  process: ChildProcessWithoutNullStreams,
+  process: ChildProcessByStdio<null, Readable, Readable>,
   dbPath: string,
 ): Promise<void> {
   if (process.exitCode === null) {
@@ -245,13 +246,13 @@ test("mongo transactions roll back inventory plus action/event writes when work 
   assert.equal(before?.remainingUnits, 4);
 
   const proposal = buildOrderProposal();
-  let rolledBackActionId: string | null = null;
+  const rolledBack: {actionId?:string} = {};
 
   await assert.rejects(
     () => harness.uow.run(async (tx) => {
       await harness.catalog.applyAllocations([{ key: inventoryKey, delta: 2 }], tx);
       const result = await harness.transactions.insertAction({ role: "client", userId: "client_1" }, proposal, tx);
-      rolledBackActionId = result.id;
+      rolledBack.actionId = result.id;
       await harness.transactions.appendEvent({ role: "client", userId: "client_1" }, proposal, result, tx);
       throw new Error("force rollback");
     }),
@@ -261,8 +262,8 @@ test("mongo transactions roll back inventory plus action/event writes when work 
   const [afterRollback] = await harness.catalog.getInventory([inventoryKey]);
   assert.equal(afterRollback?.kind, "sellable_variant");
   assert.equal(afterRollback?.remainingUnits, 4);
-  assert.equal(rolledBackActionId === null, false);
-  assert.equal(await harness.transactions.getCustomerAction("client_1", rolledBackActionId as string), null);
+  assert.ok(rolledBack.actionId);
+  assert.equal(await harness.transactions.getCustomerAction("client_1", rolledBack.actionId), null);
 
   const committed = await harness.uow.run(async (tx) => {
     await harness.catalog.applyAllocations([{ key: inventoryKey, delta: 2 }], tx);

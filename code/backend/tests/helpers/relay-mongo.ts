@@ -16,7 +16,7 @@ import { MongoProposalRepository } from "../../src/repositories/proposal.reposit
 import { MongoTransactionRepository } from "../../src/repositories/transaction.repository.js";
 import { MongoUnitOfWork } from "../../src/repositories/unit-of-work.js";
 
-function buildSuiteUri(): { uri: string; databaseName: string } {
+export function buildSuiteUri(): { uri: string; databaseName: string } {
   const baseUri = process.env.TEST_MONGODB_URI;
   if (!baseUri) {
     throw new Error("TEST_MONGODB_URI must be set for relay storage tests.");
