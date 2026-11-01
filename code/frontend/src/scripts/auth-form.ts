@@ -1,3 +1,4 @@
+import { initializePairingPanel } from './pairing-panel';
 import { authenticate, currentSession, logout, AuthApiError, type AccountProfile } from '../lib/auth-api';
 import type { Messages } from '../i18n/messages';
 import type { AuthAction, Role } from '../lib/profiles';
@@ -25,6 +26,9 @@ function initializeAuthForm() {
 	const inputs = form.querySelectorAll<HTMLInputElement>('input');
 	const password = form.querySelector<HTMLInputElement>('#password');
 	const confirmation = form.querySelector<HTMLInputElement>('#confirm-password');
+	const pairing = accountPanel.querySelector<HTMLElement>('[data-pairing-panel]');
+	if (pairing) initializePairingPanel(pairing);
+	const emitSession = (profile: AccountProfile | null) => window.dispatchEvent(new CustomEvent('relay:session', {detail: profile}));
 	let busy = false;
 	let activity = 0;
 	submit.disabled = false;
@@ -72,6 +76,7 @@ function initializeAuthForm() {
 		});
 	};
 	const showForm = () => {
+		emitSession(null);
 		accountPanel.hidden = true;
 		formRegion.hidden = false;
 		heading.textContent = originalTitle;
@@ -81,6 +86,7 @@ function initializeAuthForm() {
 	};
 
 	const showSession = (profile: AccountProfile, status: string, focus = false) => {
+		emitSession(profile);
 		const name = accountPanel.querySelector<HTMLElement>('[data-account-name]');
 		const email = accountPanel.querySelector<HTMLElement>('[data-account-email]');
 		const accountStatus = accountPanel.querySelector<HTMLElement>('[data-account-status]');
@@ -96,18 +102,27 @@ function initializeAuthForm() {
 	};
 
 	const restoreSession = async () => {
-		const startedAt = activity;
+		const startedAt = ++activity;
+		emitSession(null);
 		try {
 			const profile = await currentSession();
 			if (activity === startedAt) {
 				if (profile?.role === (role === 'business' ? 'owner' : 'client')) showSession(profile, ui.sessionActive);
-				else if (!accountPanel.hidden) showForm();
+				else {
+					emitSession(null);
+					if (!accountPanel.hidden) showForm();
+				}
 			}
 		} catch {
-			// A backend outage must not prevent entering or submitting the form.
+			if (activity === startedAt) {
+				emitSession(null);
+				if (!accountPanel.hidden) showForm();
+			}
+			// Do not retain an unverified session after restoration errors.
 		}
 	};
 	void restoreSession();
+	window.addEventListener('pagehide', () => { activity++; emitSession(null); });
 	window.addEventListener('pageshow', (event) => { if (event.persisted) void restoreSession(); });
 	form.addEventListener('input', () => { message.hidden = true; });
 
@@ -129,7 +144,8 @@ function initializeAuthForm() {
 			} : {}),
 		};
 		busy = true;
-		activity++;
+		const startedAt = ++activity;
+		emitSession(null);
 		message.hidden = true;
 		submit.disabled = true;
 		submit.textContent = action === 'register' ? ui.pendingRegister : ui.pendingLogin;
@@ -137,8 +153,11 @@ function initializeAuthForm() {
 		inputs.forEach((input) => { input.disabled = true; });
 		try {
 			const profile = await authenticate(role, action, credentials);
+			if (startedAt !== activity) return;
 			showSession(profile, action === 'register' ? ui.registerSuccess : ui.loginSuccess, true);
 		} catch (error) {
+			if (startedAt !== activity) return;
+			emitSession(null);
 			showError(error);
 		} finally {
 			busy = false;
@@ -153,6 +172,7 @@ function initializeAuthForm() {
 		if (busy) return;
 		busy = true;
 		activity++;
+		emitSession(null); // Clear and abort on logout intent, not just network completion.
 		logoutButton.disabled = true;
 		logoutButton.textContent = ui.pendingLogout;
 		try {
@@ -160,6 +180,7 @@ function initializeAuthForm() {
 			showForm();
 			form.querySelector<HTMLInputElement>('input')?.focus();
 		} catch (error) {
+			emitSession(null);
 			showError(error);
 		} finally {
 			busy = false;

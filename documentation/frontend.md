@@ -62,3 +62,13 @@ Icons come from **Bootstrap Icons 1.11.3**, the same library and version used by
 A compact homepage without illustrations or marketing sections; centered forms without a decorative panel. The name can be replaced in `Brand.astro`, the metadata, and the prompts.
 
 The discovery heading (`DiscoveryHeading.astro`) cycles through the hotel / restaurant / shop categories in the selected language, using vertical CSS animation without layout shifts. A control lets users pause the animation. The full heading remains stable for screen readers; cycling is disabled with `prefers-reduced-motion` or when JavaScript is unavailable.
+
+## Pairing panel and verification boundaries
+
+After website login, explicit Generate pairing code calls protected `POST /api/auth/link-token` using the same `PUBLIC_API_BASE_URL` and `credentials: include`. Backend response is201 `{token,expiresAt,principal:{role,userId}}`; the panel checks captured account ID and mapped role (Business→owner) before dropping the private identity from normalized pairing state. Only generated `TRUST-`+32 lowercase hexadecimal codes are interpolated into private pairing prompts; public installation prompts contain no code/identity/secrets. Canonical tool is `link_session({token})`; `pair_session` remains compatible and `link_owner_session` is owner-only.
+
+No automatic generation on login/load. `relay:session` profile|null notifications coordinate restore/login/logout. Logout intent, account switch, late responses, expiry and page lifecycle clear/abort private state. Do not persist codes or JWTs in browser storage. Reconnect after the30-minute MCP idle expiry uses a fresh15-minute code; replacement invalidates older codes. Transport aliases `/sse` and `/messages` dispatch Streamable HTTP like `/mcp`, not legacy SSE.
+
+Owner/customer prompts explain upfront that final human validation is required. The host asserts `approved:true` after approval; the server cannot independently certify human consent. No payments are collected and no civil/independent identity certification is implied. See [operations](agentic-relay.md) and [exact fictional demo](agentic-relay-demo.md).
+
+Browser evidence is from a dedicated local mock API/browser and isolated frontend port, not real hosted backend cookie/assistant integration. Mock lifecycle and BFcache tests do not establish all-browser BFcache behavior or screen-reader/accessibility certification. Actual chosen-assistant HTTPS smoke remains NOT RUN and is an external release blocker; the linked demo lists manual checks. The audit fetcher likewise has injected-adapter/source-inspection coverage, not live TLS pentest coverage.

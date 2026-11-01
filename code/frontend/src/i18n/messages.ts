@@ -1,4 +1,10 @@
 const en = {
+ pairing: {
+  title: 'Connect this account to your assistant', description: 'Generate a temporary code only when ready. Copy the prompt to your trusted assistant. Generating again replaces the previous code.',
+  generate: 'Generate pairing code', pending: 'Generating…', copy: 'Copy connection prompt', prompt: 'Temporary connection prompt', expires: 'Expires at', expired: 'Code expired. Generate a new code.', copied: 'Prompt copied.', manual: 'Clipboard unavailable. Select and copy the prompt manually.',
+  errors: { timeout: 'Request timed out. Try again.', unauthorized: 'Sign in again before generating a code.', rateLimit: 'Too many requests. Please try later.', malformed: 'Invalid or expired pairing response. Generate a new code.', roleMismatch: 'Account changed or does not match. Sign in again.', network: 'Connection failed. Try again.', aborted: 'Request canceled.' },
+ },
+
 	meta: {
 		title: 'relay — Find the right place for you.',
 		description: 'Hotel, restaurant or shop: connect relay to your AI assistant to find places that match your needs.',
@@ -100,6 +106,12 @@ export type Messages = TranslationShape<typeof en>;
 export type ValidationMessages = Messages['auth']['validation'];
 
 const fr = {
+ pairing: {
+  title: 'Connecter ce compte à votre assistant', description: 'Générez un code temporaire lorsque vous êtes prêt. Copiez le message dans votre assistant de confiance. Un nouveau code remplace le précédent.',
+  generate: 'Générer un code de connexion', pending: 'Génération…', copy: 'Copier le message de connexion', prompt: 'Message de connexion temporaire', expires: 'Expire à', expired: 'Code expiré. Générez un nouveau code.', copied: 'Message copié.', manual: 'Presse-papiers indisponible. Sélectionnez et copiez le message manuellement.',
+  errors: { timeout: 'Délai dépassé. Réessayez.', unauthorized: 'Reconnectez-vous avant de générer un code.', rateLimit: 'Trop de demandes. Réessayez plus tard.', malformed: 'Réponse de connexion invalide ou expirée. Générez un nouveau code.', roleMismatch: 'Le compte a changé ou ne correspond pas. Reconnectez-vous.', network: 'Connexion impossible. Réessayez.', aborted: 'Demande annulée.' },
+ },
+
 	meta: {
 		title: 'relay — Trouvez le lieu qui vous correspond.',
 		description: 'Hôtel, restaurant ou commerce : connectez relay à votre assistant IA pour trouver les adresses adaptées à vos envies et vos besoins.',

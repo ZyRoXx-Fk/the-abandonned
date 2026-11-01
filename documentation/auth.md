@@ -113,3 +113,47 @@ npm run build
 ```
 
 Tests use Fastify `inject`, the actual Zod schemas, bcrypt, JWT, cookies, CORS, and rate limiter. Only persistence is replaced with in-memory repositories: no MongoDB instance or real secret is required. They cover both profiles, Bearer compatibility, cross-profile rejections, expired sessions, duplicates, validation, origins, rate limiting, and production cookies. Actual MongoDB persistence must be verified using the project environment.
+
+## Role-aware MCP pairing (phase 1)
+
+`POST /api/auth/link-token` (the existing issuance route)
+issues a code for an authenticated **owner or client** using the existing website
+cookie or API bearer authentication. Cookie-origin protections still apply; a
+forbidden browser Origin is rejected for either authentication style. The response
+contains `{ token, expiresAt, principal: { role, userId } }` and is not cacheable.
+Codes are `TRUST-` plus 32 random hexadecimal characters (128 bits), valid for 15
+minutes, stored only as SHA-256 digests, and replaced on each issuance for that
+role/user. Generation is limited to 10 requests/minute per socket-derived IP.
+
+**`POST /api/auth/link-token/verify` intentionally returns 410 Gone.** It cannot
+consume codes or expose account details. Use the `pair_session` MCP tool with
+`{ token }` on the active connection instead; session IDs and IP addresses are
+never tool inputs. Failures are limited to 10/minute/session and 30/minute/IP.
+Passwords, bearer tokens and payment credentials must never be shared in chat.
+Legacy short codes no longer pair.
+
+`/mcp`, `/sse` and `/messages` are aliases for Streamable HTTP MCP. Each initialized
+connection gets its own server/transport and initially has no identity. Pairing
+cannot switch an already-paired account/role. Only the safe pairing tool and
+aggregate system health are registered during this transition: the old direct-write
+tools are unavailable pending approval-aware registrars. The assistant must tell
+the person that the final request will require their validation.
+
+DELETE, transport errors, server shutdown, 30-minute idle expiry, and closure of
+an **accepted standalone GET SSE stream** remove its binding. A newly initialized
+connection requires fresh pairing. Transparent SSE resumption is intentionally
+unsupported in phase 1: a network dropout may require a new connection/code.
+Rejected/duplicate GETs and normal POST completion do not remove a live session.
+For POST-only clients without an SSE stream, an otherwise-unobservable local
+`client.close()` cannot be detected; use DELETE or rely on idle expiry. Public
+`GET /mcp/status` contains only status and active-session count, never identities
+or session IDs. Pairing limits and sessions are process-local; production must
+route a session to its owning process (no multi-process shared-session support).
+
+## Role-aware MCP pairing
+
+Authenticated `POST /api/auth/link-token` returns 201 `{token,expiresAt,principal:{role,userId}}`, not a top-level role. The frontend validates both identity and role against the active captured account, then normalizes to `{token,expiresAt,role}` for private pairing UI. No caller identity/body override is accepted. Code generation is explicit, cookie-authenticated and origin-protected, no-store, limited to10/minute per socket IP. The former public `/api/auth/link-token/verify` returns410.
+
+Codes are single-use `TRUST-` plus32 lowercase hexadecimal digits, hashed at rest, expire after15 minutes; replacement invalidates the old code. Use canonical `link_session({token})` on the active Streamable HTTP session; `pair_session` is compatible and `link_owner_session` enforces owner role. Do not log codes or send tokens/passwords in installation prompts. Session identity cannot be switched by tool arguments or a foreign session ID; reconnect requires new pairing. Idle expiry is30 minutes. Failed consumption budgets are10/session and30/IP per minute.
+
+`/mcp`, `/sse`, `/messages` share Streamable HTTP dispatch, not separate old SSE transport. Handler responses use equivalent JSONtext/structuredContent `{ok:true,data}` or `{ok:false,error}`; native SDK pre-callback validation may instead be isError text without structuredContent. Human approval `{proposalId,revision,approved:true}` is a trusted host assertion, not independently verified human consent. See [operations](agentic-relay.md) for lifecycle, transaction/retry, trust and migration boundaries, and [demo](agentic-relay-demo.md) for the NOT RUN hosted chosen-assistant release gate.

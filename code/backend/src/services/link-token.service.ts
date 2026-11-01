@@ -1,80 +1,60 @@
-import { linkTokenRepository, LinkTokenRepository } from "../repositories/link-token.repository.js";
-import { ownerRepository, OwnerRepository } from "../repositories/owner.repository.js";
-import { TokenManager } from "../utils/managers/token.manager.js";
-import { NotFound, Conflict, BadRequest } from "../utils/errors/http.error.js";
-import { LinkTokenResponseDTO } from "../schemas/link-token.schema.js";
-
-const LINK_TOKEN_EXPIRATION_MINUTES = 15;
-
+import { randomBytes, createHash } from 'node:crypto';
+import type { PairingTokenRepository } from '../repositories/link-token.repository.js';
+import { McpSessionManager } from '../utils/managers/mcp-session.manager.js';
+import type { Clock, Principal } from '../schemas/relay.schema.js';
+import { BadRequest } from '../utils/errors/http.error.js';
 export class LinkTokenService {
-  constructor(
-    private readonly linkTokenRepo: LinkTokenRepository = linkTokenRepository,
-    private readonly ownerRepo: OwnerRepository = ownerRepository
-  ) { }
-
-  async generateLinkToken(ownerId: string): Promise<LinkTokenResponseDTO> {
-    const owner = await this.ownerRepo.findById(ownerId);
-    if (!owner) {
-      throw new NotFound("Owner not found");
+  private readonly failures = new Map<string, { count: number; until: number }>();
+  constructor(private readonly tokens: PairingTokenRepository, private readonly sessions: McpSessionManager, private readonly clock: Clock = () => new Date()) {}
+  async generateForPrincipal(principal: Principal): Promise<{ token: string; expiresAt: Date; principal: Principal }> {
+    const token = 'TRUST-' + randomBytes(16).toString('hex');
+    const expiresAt = new Date(this.clock().getTime() + 15 * 60000);
+    await this.tokens.replace(this.hash(token), principal, expiresAt);
+    return { token, expiresAt, principal: { ...principal } };
+  }
+  async consumeForSession(token: string, sessionId: string, expectedRole?: Principal['role']): Promise<Principal> {
+    this.cleanup();
+    const session = this.sessions.getSession(sessionId);
+    if (!session) throw new BadRequest('Live session required');
+    const keys = [`session:${sessionId}`, `ip:${session.ip}`];
+    const now = this.clock().getTime();
+    for (const [index, key] of keys.entries()) {
+      const bucket = this.failures.get(key);
+      if (bucket && bucket.count >= (index === 0 ? 10 : 30)) throw new BadRequest('Too many pairing failures');
     }
-
-    await this.linkTokenRepo.invalidatePendingForOwner(ownerId);
-
-    const token = TokenManager.generateLinkToken("TRUST", 6);
-    const expiresAt = new Date(Date.now() + LINK_TOKEN_EXPIRATION_MINUTES * 60 * 1000);
-
-    await this.linkTokenRepo.create({
-      token,
-      ownerId,
-      expiresAt,
+    // Reserve before I/O; simultaneous failures cannot overrun either budget.
+    const reservations = keys.map(key => {
+      let bucket = this.failures.get(key);
+      if (!bucket) { bucket = { count: 0, until: now + 60000 }; this.failures.set(key, bucket); }
+      bucket.count++;
+      return bucket;
     });
-
-    const prompt = `MCP Initialization. I am the entity ${owner.firstName} ${owner.lastName}. My link token is: ${token}. Let's start configuring my restaurant profile.`;
-
-    return {
-      token,
-      expiresAt,
-      prompt,
-      owner: {
-        id: owner._id.toString(),
-        firstName: owner.firstName,
-        lastName: owner.lastName,
-        email: owner.email,
-      },
-    };
+    const result = await this.consume(token, sessionId, expectedRole);
+    for (const bucket of reservations) bucket.count--;
+    return result;
   }
-
-  async validateAndConsume(tokenStr: string) {
-    const linkToken = await this.linkTokenRepo.findByToken(tokenStr);
-    if (!linkToken) {
-      throw new NotFound("Invalid link token");
+  cleanup(): void {
+    for (const [key, bucket] of this.failures) {
+      if (bucket.until <= this.clock().getTime() || (key.startsWith('session:') && !this.sessions.getSession(key.slice(8)))) this.failures.delete(key);
     }
-
-    if (linkToken.isUsed) {
-      throw new Conflict("This link token has already been used");
-    }
-
-    if (linkToken.expiresAt.getTime() < Date.now()) {
-      throw new BadRequest("This link token has expired. Please generate a new one from your dashboard.");
-    }
-
-    await this.linkTokenRepo.markAsUsed(linkToken._id.toString());
-
-    const owner = await this.ownerRepo.findById(linkToken.ownerId.toString());
-    if (!owner) {
-      throw new NotFound("Associated owner account not found");
-    }
-
-    return {
-      token: linkToken.token,
-      owner: {
-        id: owner._id.toString(),
-        firstName: owner.firstName,
-        lastName: owner.lastName,
-        email: owner.email,
-      },
-    };
   }
+  private async consume(token: string, sessionId: string, expectedRole?: Principal['role']): Promise<Principal> {
+    // Synchronous reservation precedes all I/O: competing codes cannot switch this session.
+    const session = this.sessions.beginPairing(sessionId);
+    const hash = this.hash(token);
+    let consumed = false;
+    try {
+      const principal = await this.tokens.consume(hash, this.clock());
+      if (!principal) throw new BadRequest('Invalid or expired pairing code');
+      consumed = true;
+      if (expectedRole && principal.role !== expectedRole) throw new BadRequest('Role not permitted');
+      this.sessions.bind(session, principal);
+      return { ...principal };
+    } catch (error) {
+      // Disconnect/expiry during the database operation must not burn an otherwise usable code.
+      if (consumed) await this.tokens.release(hash);
+      throw error;
+    } finally { session.pairing = false; }
+  }
+  private hash(token: string): string { return createHash('sha256').update(token).digest('hex'); }
 }
-
-export const linkTokenService = new LinkTokenService();

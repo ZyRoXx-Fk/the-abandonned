@@ -1,0 +1,25 @@
+---
+import { translations, type Locale } from '../i18n';
+import type { Role } from '../lib/profiles';
+interface Props { role: Role; locale: Locale }
+const { role, locale } = Astro.props;
+const ui = translations(locale).pairing;
+---
+<section data-pairing-panel data-role={role} data-locale={locale} data-messages={JSON.stringify(ui)} aria-labelledby="pairing-title" hidden>
+ <h2 id="pairing-title">{ui.title}</h2>
+ <p>{ui.description}</p>
+ <button class="button" type="button" data-pairing-generate>{ui.generate}</button>
+ <p data-pairing-status role="status" aria-live="polite" tabindex="-1"></p>
+ <div data-pairing-result hidden>
+  <p>{ui.expires} <time data-pairing-expiry></time></p>
+  <label for="pairing-prompt">{ui.prompt}</label>
+  <textarea id="pairing-prompt" data-pairing-prompt readonly rows="9" spellcheck="false" autocomplete="off"></textarea>
+  <button class="button" type="button" data-pairing-copy>{ui.copy}</button>
+ </div>
+</section>
+<style>
+ section { margin-top: 24px; padding-block: 20px; border-top: 1px solid var(--line); }
+ h2 { font-size: 17px; } p, label { font-size: 12px; line-height: 1.7; margin-block: 12px; }
+ textarea { display: block; width: 100%; box-sizing: border-box; margin-block: 12px; padding: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: inherit; font-size: 12px; }
+ button { font-size: 12px; } :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
