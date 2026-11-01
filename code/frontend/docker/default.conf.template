@@ -1,0 +1,29 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    server_tokens off;
+    add_header X-Content-Type-Options nosniff always;
+
+    location = /healthz {
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Keep /api, cookies, request bodies and Origin intact. The backend still
+    # enforces its own authentication and allowed-origin checks.
+    location ^~ /api/ {
+        proxy_pass ${BACKEND_ORIGIN};
+        proxy_http_version 1.1;
+        proxy_set_header Host $proxy_host;
+        proxy_ssl_server_name on;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+    }
+
+    # Astro emits directory-based routes, not a single-page application.
+    location / {
+        try_files $uri $uri/index.html =404;
+    }
+}
