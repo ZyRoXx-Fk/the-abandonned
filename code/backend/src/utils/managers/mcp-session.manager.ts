@@ -1,64 +1,45 @@
-import { McpSessionInfo } from "../../schemas/mcp.schema.js";
-
+import type { Clock, Principal } from '../../schemas/relay.schema.js';
+import { Conflict, Forbidden, Unauthorized } from '../errors/http.error.js';
 export interface ActiveMcpSession {
-  sessionId: string;
-  ownerId: string | null;
-  createdAt: Date;
+  readonly sessionId: string;
+  principal: Principal | null;
+  pairing: boolean;
+  readonly ip: string;
   lastActiveAt: Date;
 }
-
+export const MCP_IDLE_MS = 30 * 60 * 1000;
 export class McpSessionManager {
   private readonly sessions = new Map<string, ActiveMcpSession>();
-
-  registerSession(sessionId: string): ActiveMcpSession {
-    const session: ActiveMcpSession = {
-      sessionId,
-      ownerId: null,
-      createdAt: new Date(),
-      lastActiveAt: new Date(),
-    };
-
-    this.sessions.set(sessionId, session);
-    return session;
+  constructor(private readonly clock: Clock = () => new Date()) {}
+  registerSession(sessionId: string, ip: string): void {
+    if (this.sessions.has(sessionId)) throw new Conflict('Session already exists');
+    this.sessions.set(sessionId, { sessionId, principal: null, pairing: false, ip, lastActiveAt: this.clock() });
   }
-
   getSession(sessionId: string): ActiveMcpSession | null {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.lastActiveAt = new Date();
-      return session;
-    }
-    return null;
+    return session && this.clock().getTime() - session.lastActiveAt.getTime() < MCP_IDLE_MS ? session : null;
   }
-
-  setSessionOwner(sessionId: string, ownerId: string): boolean {
-    let session = this.sessions.get(sessionId);
-    if (!session) {
-      session = this.registerSession(sessionId);
-    }
-
-    session.ownerId = ownerId;
-    session.lastActiveAt = new Date();
-    return true;
+  touch(sessionId: string): boolean {
+    const session = this.getSession(sessionId);
+    if (!session) return false;
+    session.lastActiveAt = this.clock(); return true;
   }
-
-  removeSession(sessionId: string): void {
-    this.sessions.delete(sessionId);
+  beginPairing(sessionId: string): ActiveMcpSession {
+    const session = this.getSession(sessionId);
+    if (!session) throw new Unauthorized('Live session required');
+    if (session.principal || session.pairing) throw new Conflict('Session already paired or pairing');
+    session.pairing = true; return session;
   }
-
-  getActiveCount(): number {
-    return this.sessions.size;
+  bind(session: ActiveMcpSession, principal: Principal): void {
+    if (this.getSession(session.sessionId) !== session || !session.pairing || session.principal) throw new Unauthorized('Live unpaired session required');
+    session.principal = Object.freeze({ ...principal });
   }
-
-  getAllSessions(): McpSessionInfo[] {
-    return Array.from(this.sessions.values()).map((s) => ({
-      sessionId: s.sessionId,
-      ownerId: s.ownerId,
-      createdAt: s.createdAt,
-      lastActiveAt: s.lastActiveAt,
-    }));
+  requirePrincipal(sessionId: string, role?: Principal['role']): Principal {
+    const principal = this.getSession(sessionId)?.principal;
+    if (!principal) throw new Unauthorized('Pair this session on the trusted website first');
+    if (role && principal.role !== role) throw new Forbidden('Role not permitted');
+    return { ...principal };
   }
+  removeSession(sessionId: string): void { this.sessions.delete(sessionId); }
+  getActiveCount(): number { return [...this.sessions.keys()].filter(id => this.getSession(id)).length; }
 }
-
-export const mcpSessionManager = new McpSessionManager();
-

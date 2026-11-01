@@ -1,341 +1,93 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { mcpSessionManager, McpSessionManager } from "../utils/managers/mcp-session.manager.js";
-import { linkTokenService, LinkTokenService } from "./link-token.service.js";
-import { businessRepository, BusinessRepository } from "../repositories/business.repository.js";
-import { auditService, AuditService } from "./audit.service.js";
-import { businessService, BusinessService } from "./business.service.js";
-import {
-  linkOwnerSessionInputShape,
-  LinkOwnerSessionDTO,
-  LinkOwnerSessionResultDTO,
-} from "../schemas/mcp.schema.js";
-import { auditWebsiteInputShape } from "../schemas/audit.schema.js";
-import {
-  saveBusinessProfileInputShape,
-  updateBusinessStatusInputShape,
-  searchRestaurantsInputShape,
-} from "../schemas/business.schema.js";
-import { randomUUID } from "crypto";
-import { ServerResponse, IncomingMessage } from "http";
-
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { createRelayServer } from '../mcp/server-factory.js';
+import { McpSessionManager } from '../utils/managers/mcp-session.manager.js';
+import { LinkTokenService } from './link-token.service.js';
+interface SessionTransport { transport: StreamableHTTPServerTransport; server: McpServer }
 export class McpService {
-  private server: McpServer;
-  private transport: StreamableHTTPServerTransport;
-  private initPromise: Promise<void> | null = null;
-
-  constructor(
-    private readonly sessionManager: McpSessionManager = mcpSessionManager,
-    private readonly linkTokens: LinkTokenService = linkTokenService,
-    private readonly businessRepo: BusinessRepository = businessRepository,
-    private readonly auditor: AuditService = auditService,
-    private readonly businessSvc: BusinessService = businessService
-  ) {
-    this.server = new McpServer(
-      {
-        name: "the-abandonned",
-        version: "1.0.0",
-      },
-      {
-        capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {},
-        },
+  private readonly transports = new Map<string, SessionTransport>();
+  private readonly pending = new Set<SessionTransport>();
+  private closed = false;
+  private readonly requestContext = new AsyncLocalStorage<ServerResponse>();
+  constructor(private readonly sessions: McpSessionManager, private readonly pairing: LinkTokenService) {}
+  async handleRequest(req: IncomingMessage, res: ServerResponse, body?: unknown): Promise<void> {
+    await this.cleanup();
+    if (this.closed) { res.writeHead(503).end(); return; }
+    const header = req.headers['mcp-session-id'];
+    if (header !== undefined) {
+      if (typeof header !== 'string' || !this.sessions.touch(header)) { res.writeHead(404).end(); return; }
+      const entry = this.transports.get(header);
+      if (!entry) { res.writeHead(404).end(); return; }
+      res.once('finish', () => { if (res.statusCode >= 500) void this.remove(header); });
+      if (req.method === 'GET') {
+        res.once('close', () => {
+          // SDK GET 200 is an accepted standalone SSE stream; rejected GETs are non-200.
+          // SDK writeHead(headers) does not populate Node getHeader(), so use the status.
+          if (res.headersSent && res.statusCode === 200) void this.remove(header);
+        });
       }
-    );
-
-    this.setupResources();
-    this.setupTools();
-
-    this.transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      onsessioninitialized: (sessionId: string) => {
-        this.sessionManager.registerSession(sessionId);
+      try { await this.requestContext.run(res, () => entry.transport.handleRequest(req, res, body)); }
+      catch { await this.remove(header); if (!res.writableEnded) res.end(); }
+      return;
+    }
+    if (req.method !== 'POST' || !isInitializeRequest(body)) { res.writeHead(400).end(); return; }
+    let id: string | undefined;
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: randomUUID,
+      onsessioninitialized: sessionId => {
+        if (this.closed) throw new Error('Server is shutting down');
+        id = sessionId;
+        this.sessions.registerSession(sessionId, req.socket.remoteAddress || 'unknown');
+        this.transports.set(sessionId, entry);
+        this.pending.delete(entry);
       },
-      onsessionclosed: (sessionId: string) => {
-        this.sessionManager.removeSession(sessionId);
-      },
+      onsessionclosed: async sessionId => { await this.remove(sessionId); },
     });
-  }
-
-  private setupResources(): void {
-    this.server.resource(
-      "system-health",
-      "system://health",
-      async (uri) => ({
-        contents: [
-          {
-            uri: uri.href,
-            text: JSON.stringify({
-              status: "operational",
-              service: "the-abandonned-mcp-server",
-              timestamp: new Date().toISOString(),
-            }),
-          },
-        ],
-      })
-    );
-  }
-
-  private setupTools(): void {
-    this.server.tool(
-      "link_owner_session",
-      "Links the current AI agent session to the certified business owner account on the web platform using the link token (e.g. TRUST-9B3C2A).",
-      linkOwnerSessionInputShape,
-      async (args, extra) => {
-        try {
-          const result = await this.linkOwnerSession(args, extra.sessionId);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error: any) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: error?.message || "Error linking owner session",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    this.server.tool(
-      "audit_website",
-      "Audits the legacy restaurant website, detects outdated structure (legacy), identifies missing data for AI agents (terrace, pets, seating capacity), and proposes a draft MCP profile.",
-      auditWebsiteInputShape,
-      async (args) => {
-        try {
-          const result = await this.auditor.auditWebsite(args);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error: any) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: error?.message || "Error auditing restaurant website",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    this.server.tool(
-      "save_business_profile",
-      "Saves or updates a certified restaurant profile in MongoDB with 'trusted' status, and initializes its real-time availability stream.",
-      saveBusinessProfileInputShape,
-      async (args, extra) => {
-        try {
-          const effectiveSessionId = args.sessionId || extra.sessionId;
-          let ownerId: string | null = null;
-
-          if (effectiveSessionId) {
-            const session = this.sessionManager.getSession(effectiveSessionId);
-            ownerId = session?.ownerId || null;
-          }
-
-          if (!ownerId) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: "text",
-                  text: "Authentication required: This session is not linked to an owner account. Please first link your session using the 'link_owner_session' tool with the pairing token generated from your web dashboard (e.g. TRUST-XXXXXX), or register as a civil entity at http://localhost:4321.",
-                },
-              ],
-            };
-          }
-
-          const result = await this.businessSvc.saveBusinessProfile(ownerId, args);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error: any) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: error?.message || "Error saving business profile",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    this.server.tool(
-      "update_business_status",
-      "Updates the live real-time status of a restaurant (terrace open/closed, available seats right now, weather or dynamic alerts).",
-      updateBusinessStatusInputShape,
-      async (args, extra) => {
-        try {
-          const effectiveSessionId = args.sessionId || extra.sessionId;
-          let ownerId: string | null = null;
-
-          if (effectiveSessionId) {
-            const session = this.sessionManager.getSession(effectiveSessionId);
-            ownerId = session?.ownerId || null;
-          }
-
-          if (!ownerId) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: "text",
-                  text: "Authentication required: This session is not linked to an owner account. Please first link your session using the 'link_owner_session' tool with the pairing token generated from your web dashboard (e.g. TRUST-XXXXXX), or register as a civil entity at http://localhost:4321.",
-                },
-              ],
-            };
-          }
-
-          const result = await this.businessSvc.updateBusinessStatus(ownerId, args);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error: any) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: error?.message || "Error updating business live status",
-              },
-            ],
-          };
-        }
-      }
-    );
-
-    this.server.tool(
-      "search_restaurants",
-      "Searches verified Basel restaurants in the MCP directory based on cuisine, amenities, open terrace state, and live available seats with zero hallucination.",
-      searchRestaurantsInputShape,
-      async (args) => {
-        try {
-          const result = await this.businessSvc.searchRestaurants(args);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        } catch (error: any) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: error?.message || "Error searching restaurants",
-              },
-            ],
-          };
-        }
-      }
-    );
-  }
-
-  async linkOwnerSession(
-    args: LinkOwnerSessionDTO,
-    contextSessionId?: string
-  ): Promise<LinkOwnerSessionResultDTO> {
-    const normalizedToken = args.token.trim().toUpperCase();
-    const consumptionResult = await this.linkTokens.validateAndConsume(normalizedToken);
-
-    const effectiveSessionId = args.sessionId || contextSessionId || null;
-    if (effectiveSessionId) {
-      this.sessionManager.setSessionOwner(effectiveSessionId, consumptionResult.owner.id);
+    const server = createRelayServer({ pairing: this.pairing, sessions: this.sessions });
+    const entry = { transport, server };
+    this.pending.add(entry);
+    res.once('finish', () => { if (id && res.statusCode >= 500) void this.remove(id); });
+    try {
+      await server.connect(transport);
+      if (this.closed) throw new Error('Server is shutting down');
+      // SDK owns onclose/onerror after connect; retain its handlers while removing our binding.
+      const onclose = transport.onclose;
+      transport.onclose = () => { onclose?.(); if (id) { this.sessions.removeSession(id); this.transports.delete(id); } this.pending.delete(entry); };
+      const onerror = transport.onerror;
+      transport.onerror = error => {
+        onerror?.(error);
+        const response = this.requestContext.getStore();
+        // The SDK also reports ordinary HTTP validation errors through onerror before headers.
+        // These are not transport failures. A 5xx finish or a post-header failure is terminal.
+        if (id && (!response || response.headersSent)) void this.remove(id);
+      };
+      await this.requestContext.run(res, () => transport.handleRequest(req, res, body));
+      if (!id) { this.pending.delete(entry); await server.close(); }
+    } catch {
+      this.pending.delete(entry);
+      if (id) await this.remove(id); else await server.close();
+      if (!res.writableEnded) { if (!res.headersSent) res.writeHead(500); res.end(); }
     }
-
-    const businesses = await this.businessRepo.findAllByOwnerId(consumptionResult.owner.id);
-    const formattedBusinesses = businesses.map((b) => ({
-      id: b._id.toString(),
-      name: b.name,
-      trustStatus: b.trustStatus,
-    }));
-
-    const businessNotice =
-      formattedBusinesses.length > 0
-        ? `Associated business(es): ${formattedBusinesses.map((b) => `${b.name} (${b.trustStatus})`).join(", ")}.`
-        : "No registered business yet. You can audit your current website using the 'audit_website' tool or configure your profile with 'save_business_profile'.";
-
-    return {
-      success: true,
-      message: `Session successfully certified for ${consumptionResult.owner.firstName} ${consumptionResult.owner.lastName}. ${businessNotice}`,
-      owner: consumptionResult.owner,
-      businesses: formattedBusinesses,
-      sessionId: effectiveSessionId,
-    };
   }
-
-  async init(): Promise<void> {
-    if (!this.initPromise) {
-      this.initPromise = this.server.connect(this.transport);
-    }
-    await this.initPromise;
+  private async remove(id: string): Promise<void> {
+    this.sessions.removeSession(id);
+    const entry = this.transports.get(id);
+    this.transports.delete(id);
+    if (entry) await entry.server.close();
   }
-
-  getServer(): McpServer {
-    return this.server;
+  async cleanup(): Promise<void> {
+    for (const id of this.transports.keys()) if (!this.sessions.getSession(id)) await this.remove(id);
+    this.pairing.cleanup();
   }
-
-  getTransport(): StreamableHTTPServerTransport {
-    return this.transport;
+  async close(): Promise<void> {
+    this.closed = true;
+    for (const id of this.transports.keys()) await this.remove(id);
+    for (const entry of this.pending) await entry.server.close();
+    this.pending.clear();
   }
-
-  async handleRequest(
-    req: IncomingMessage,
-    res: ServerResponse,
-    parsedBody?: unknown
-  ): Promise<void> {
-    await this.init();
-    await this.transport.handleRequest(req, res, parsedBody);
-  }
-
-  getSession(sessionId: string) {
-    return this.sessionManager.getSession(sessionId);
-  }
-
-  getStatus() {
-    return {
-      status: "running",
-      protocol: "model-context-protocol",
-      transport: "StreamableHTTP",
-      version: "1.0.0",
-      activeSessions: this.sessionManager.getActiveCount(),
-      sessions: this.sessionManager.getAllSessions(),
-    };
-  }
+  getStatus() { return { status: 'operational', activeSessions: this.sessions.getActiveCount() }; }
 }
-
-export const mcpService = new McpService();

@@ -1,0 +1,85 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID, createHash } from 'node:crypto';
+import { createMongoConnection } from '../src/config/database.js';
+import { LinkTokenService } from '../src/services/link-token.service.js';
+import { McpSessionManager } from '../src/utils/managers/mcp-session.manager.js';
+import { LinkTokenRepository } from '../src/repositories/link-token.repository.js';
+import { getLinkTokenModel } from '../src/models/link-token.model.js';
+import { buildMcpTestApp } from './helpers/mcp-app.js';
+import { TokenManager } from '../src/utils/managers/token.manager.js';
+process.env.JWT_SECRET = 'test-only-secret-not-for-production-123456789';
+process.env.FRONTEND_URL = 'http://localhost:4321';
+for (const role of ['owner', 'client'] as const) test(`${role} cookie issuance, origin/auth guards, disabled verify and IP limit`, async t => {
+  const h = await buildMcpTestApp(); t.after(() => h.close());
+  const jwt = await TokenManager.generateToken({ userId: 'user1', role });
+  const headers = { cookie: `relay_session=${jwt}`, origin: 'http://localhost:4321' };
+  const url = '/api/auth/link-token/';
+  assert.equal((await h.app.inject({ method: 'POST', url })).statusCode, 401);
+  assert.equal((await h.app.inject({ method: 'POST', url, headers: { ...headers, origin: 'https://evil.example' } })).statusCode, 403);
+  const result = await h.app.inject({ method: 'POST', url, headers });
+  assert.equal(result.statusCode, 201, result.body);
+  assert.match(result.json().token, /^TRUST-[a-f0-9]{32}$/);
+  assert.deepEqual(result.json().principal, { role, userId: 'user1' });
+  assert.equal(result.headers['cache-control'], 'no-store');
+  const bearer = await h.app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${jwt}` } });
+  assert.equal(bearer.statusCode, 201);
+  assert.equal((await h.app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${jwt}`, origin: 'https://evil.example' } })).statusCode, 403);
+  assert.equal((await h.app.inject({ method: 'POST', url: url + 'verify', payload: { token: result.json().token } })).statusCode, 410);
+  for (let i = 0; i < 12; i++) await h.app.inject({ method: 'POST', url, headers });
+  assert.equal((await h.app.inject({ method: 'POST', url, headers: { ...headers, 'x-forwarded-for': '8.8.8.8' } })).statusCode, 429);
+});
+test('real Mongo: hashed storage, unique role/user replacement and one-use atomic races', async () => {
+  assert.ok(process.env.TEST_MONGODB_URI, 'TEST_MONGODB_URI is required');
+  const uri = new URL(process.env.TEST_MONGODB_URI);
+  assert.match(uri.pathname, /^\/relay_test/);
+  uri.pathname += '_' + randomUUID().replaceAll('-', '').slice(0, 8);
+  assert.ok(uri.pathname.length <= 39);
+  const connection = await createMongoConnection(uri.toString());
+  try {
+    const model = getLinkTokenModel(connection); await model.init();
+    const repo = new LinkTokenRepository(connection);
+    const principal = { role: 'owner' as const, userId: 'user1' };
+    const future = new Date(Date.now() + 900000);
+    await Promise.all(Array.from({ length: 15 }, (_, i) => repo.replace(createHash('sha256').update('code' + i).digest('hex'), principal, future)));
+    assert.equal(await model.countDocuments(), 1);
+    const record = await model.findOne().orFail();
+    const results = await Promise.all(Array.from({ length: 20 }, () => repo.consume(record.token, new Date())));
+    assert.equal(results.filter(Boolean).length, 1);
+    await repo.replace('expired-hash', principal, new Date(0));
+    assert.equal(await repo.consume('expired-hash', new Date()), null);
+    await repo.replace('client-hash', { ...principal, role: 'client' }, future);
+    assert.equal(await model.countDocuments(), 2);
+
+    const sessions = new McpSessionManager();
+    for (const id of ['a', 'b', 'c', 'd']) sessions.registerSession(id, '127.0.0.1');
+    const service = new LinkTokenService(repo, sessions);
+    const stale = await service.generateForPrincipal(principal);
+    const fresh = await service.generateForPrincipal(principal);
+    const stored = await model.findOne({ role: 'owner', userId: principal.userId }).orFail();
+    assert.equal(stored.token, createHash('sha256').update(fresh.token).digest('hex'));
+    assert.notEqual(stored.token, fresh.token);
+    assert.equal(fresh.expiresAt.getTime() - Date.now() > 899000, true);
+    await assert.rejects(service.consumeForSession(stale.token, 'a'));
+    await assert.rejects(service.consumeForSession(fresh.token, 'unknown'));
+    const once = await Promise.allSettled(['a', 'b'].map(id => service.consumeForSession(fresh.token, id)));
+    assert.equal(once.filter(r => r.status === 'fulfilled').length, 1);
+    const paired = once[0].status === 'fulfilled' ? 'a' : 'b';
+    const ownerCode = await service.generateForPrincipal(principal);
+    const clientCode = await service.generateForPrincipal({ role: 'client', userId: 'user1' });
+    await assert.rejects(service.consumeForSession(clientCode.token, paired));
+    const competing = await Promise.allSettled([service.consumeForSession(ownerCode.token, 'c'), service.consumeForSession(clientCode.token, 'c')]);
+    assert.equal(competing.filter(r => r.status === 'fulfilled').length, 1);
+    const unused = competing[0].status === 'fulfilled' ? clientCode.token : ownerCode.token;
+    await service.consumeForSession(unused, 'd');
+    assert.equal(await model.countDocuments(), 2);
+
+    // Release after a disconnect must not resurrect a concurrently replaced code.
+    const old = await service.generateForPrincipal(principal);
+    await repo.consume(createHash('sha256').update(old.token).digest('hex'), new Date());
+    const newer = await service.generateForPrincipal(principal);
+    await repo.release(createHash('sha256').update(old.token).digest('hex'));
+    assert.equal(await repo.consume(createHash('sha256').update(old.token).digest('hex'), new Date()), null);
+    assert.deepEqual(await repo.consume(createHash('sha256').update(newer.token).digest('hex'), new Date()), principal);
+  } finally { await connection.dropDatabase(); await connection.close(); }
+});

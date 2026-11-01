@@ -1,17 +1,10 @@
-import { FastifyInstance } from "fastify";
-import { mcpController } from "../controllers/mcp.controller.js";
-
-export async function mcpRoutes(app: FastifyInstance): Promise<void> {
-  // Main Streamable HTTP MCP endpoint (handles GET for SSE streaming and POST for JSON-RPC messages)
-  app.all("/mcp", mcpController.handleRequest);
-
-  // SSE endpoint alias for MCP clients requesting /sse
-  app.all("/sse", mcpController.handleRequest);
-
-  // Messages endpoint alias for legacy clients posting to /messages
-  app.all("/messages", mcpController.handleRequest);
-
-  // Status and observability endpoint
-  app.get("/mcp/status", mcpController.getStatus);
+import type { FastifyInstance } from 'fastify';
+import type { McpController } from '../controllers/mcp.controller.js';
+import type { McpService } from '../services/mcp.service.js';
+export async function mcpRoutes(app: FastifyInstance, options: { controller: McpController; service: McpService }): Promise<void> {
+  for (const path of ['/mcp', '/sse', '/messages']) app.all(path, options.controller.handleRequest);
+  app.get('/mcp/status', options.controller.getStatus);
+  const timer = setInterval(() => { void options.service.cleanup(); }, 60000);
+  timer.unref();
+  app.addHook('preClose', async () => { clearInterval(timer); await options.service.close(); });
 }
-

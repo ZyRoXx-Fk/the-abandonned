@@ -113,3 +113,39 @@ npm run build
 ```
 
 Tests use Fastify `inject`, the actual Zod schemas, bcrypt, JWT, cookies, CORS, and rate limiter. Only persistence is replaced with in-memory repositories: no MongoDB instance or real secret is required. They cover both profiles, Bearer compatibility, cross-profile rejections, expired sessions, duplicates, validation, origins, rate limiting, and production cookies. Actual MongoDB persistence must be verified using the project environment.
+
+## Role-aware MCP pairing (phase 1)
+
+`POST /api/auth/link-token` (the existing issuance route)
+issues a code for an authenticated **owner or client** using the existing website
+cookie or API bearer authentication. Cookie-origin protections still apply; a
+forbidden browser Origin is rejected for either authentication style. The response
+contains `{ token, expiresAt, principal: { role, userId } }` and is not cacheable.
+Codes are `TRUST-` plus 32 random hexadecimal characters (128 bits), valid for 15
+minutes, stored only as SHA-256 digests, and replaced on each issuance for that
+role/user. Generation is limited to 10 requests/minute per socket-derived IP.
+
+**`POST /api/auth/link-token/verify` intentionally returns 410 Gone.** It cannot
+consume codes or expose account details. Use the `pair_session` MCP tool with
+`{ token }` on the active connection instead; session IDs and IP addresses are
+never tool inputs. Failures are limited to 10/minute/session and 30/minute/IP.
+Passwords, bearer tokens and payment credentials must never be shared in chat.
+Legacy short codes no longer pair.
+
+`/mcp`, `/sse` and `/messages` are aliases for Streamable HTTP MCP. Each initialized
+connection gets its own server/transport and initially has no identity. Pairing
+cannot switch an already-paired account/role. Only the safe pairing tool and
+aggregate system health are registered during this transition: the old direct-write
+tools are unavailable pending approval-aware registrars. The assistant must tell
+the person that the final request will require their validation.
+
+DELETE, transport errors, server shutdown, 30-minute idle expiry, and closure of
+an **accepted standalone GET SSE stream** remove its binding. A newly initialized
+connection requires fresh pairing. Transparent SSE resumption is intentionally
+unsupported in phase 1: a network dropout may require a new connection/code.
+Rejected/duplicate GETs and normal POST completion do not remove a live session.
+For POST-only clients without an SSE stream, an otherwise-unobservable local
+`client.close()` cannot be detected; use DELETE or rely on idle expiry. Public
+`GET /mcp/status` contains only status and active-session count, never identities
+or session IDs. Pairing limits and sessions are process-local; production must
+route a session to its owning process (no multi-process shared-session support).

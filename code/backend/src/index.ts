@@ -7,7 +7,12 @@ import { connectDatabase, disconnectDatabase, isDatabaseConnected } from "./conf
 import { authRoutes } from "./routes/auth.routes.js";
 import { linkTokenRoutes } from "./routes/link-token.routes.js";
 import { mcpRoutes } from "./routes/mcp.routes.js";
-import { mcpService } from "./services/mcp.service.js";
+import { McpService } from "./services/mcp.service.js";
+import { McpController } from "./controllers/mcp.controller.js";
+import { McpSessionManager } from "./utils/managers/mcp-session.manager.js";
+import { LinkTokenService } from "./services/link-token.service.js";
+import { LinkTokenRepository } from "./repositories/link-token.repository.js";
+import { LinkTokenController } from "./controllers/link-token.controller.js";
 import { frontendOrigins } from "./config/auth.js";
 
 dotenv.config();
@@ -17,7 +22,8 @@ const host = process.env.HOST || "0.0.0.0";
 
 export async function buildApp() {
   const app = Fastify({
-    logger: true,
+    logger: { redact: ["req.body", "body", "token", "req.headers.authorization", "req.headers.cookie"] },
+    trustProxy: false,
   });
 
   await app.register(cors, {
@@ -40,10 +46,11 @@ export async function buildApp() {
   });
 
   await app.register(authRoutes, { prefix: "/api/auth" });
-  await app.register(linkTokenRoutes, { prefix: "/api/auth/link-token" });
-  await app.register(mcpRoutes);
-
-  await mcpService.init();
+  const sessions = new McpSessionManager();
+  const pairing = new LinkTokenService(new LinkTokenRepository(), sessions);
+  const mcp = new McpService(sessions, pairing);
+  await app.register(linkTokenRoutes, { prefix: "/api/auth/link-token", controller: new LinkTokenController(pairing) });
+  await app.register(mcpRoutes, { controller: new McpController(mcp), service: mcp });
 
   return app;
 }
