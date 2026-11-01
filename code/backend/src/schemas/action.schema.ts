@@ -250,21 +250,14 @@ const publicationSummarySchema = z.object({
 }).strict();
 
 const reservationAmendmentSummarySchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("restaurant_booking"),
+  restaurantBookingSummarySchema.extend({
     reservationId: relayIdSchema,
     expectedReservationRevision: nonNegativeSafeIntegerSchema,
-    slotId: relayIdSchema,
-    partySize: positiveSafeIntegerSchema.max(100),
-    policies: z.array(policySchema).max(20),
-    paymentNotice: paymentNoticeSchema,
-  }).strict(),
-  z.object({
-    kind: z.literal("hotel_booking"),
+  }),
+  hotelBookingSummarySchema.extend({
     reservationId: relayIdSchema,
     expectedReservationRevision: nonNegativeSafeIntegerSchema,
-    ...hotelStaySummaryFields,
-  }).strict().superRefine(refineHotelStaySummary),
+  }),
 ]);
 
 const termsRevisionSchema = z.object({

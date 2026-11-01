@@ -1,4 +1,32 @@
-import mongoose from "mongoose";
+import mongoose, { type ConnectOptions, type Connection } from "mongoose";
+
+function buildConnectionOptions(): ConnectOptions {
+  return {
+    autoIndex: true,
+  };
+}
+
+function redactMongoSecrets(value: string): string {
+  return value.replace(/mongodb(\+srv)?:\/\/[^\s@]+@/gi, "mongodb$1://<redacted>@");
+}
+
+function sanitizeMongoError(error: unknown): unknown {
+  if (error instanceof Error) {
+    error.message = redactMongoSecrets(error.message);
+  }
+  return error;
+}
+
+export async function createMongoConnection(uri: string): Promise<Connection> {
+  const connection = mongoose.createConnection(uri, buildConnectionOptions());
+
+  try {
+    return await connection.asPromise();
+  } catch (error) {
+    await connection.close().catch(() => undefined);
+    throw sanitizeMongoError(error);
+  }
+}
 
 export async function connectDatabase(): Promise<typeof mongoose | null> {
   const uri = process.env.MONGODB_URI;
@@ -9,12 +37,13 @@ export async function connectDatabase(): Promise<typeof mongoose | null> {
   }
 
   try {
-    const conn = await mongoose.connect(uri);
+    const conn = await mongoose.connect(uri, buildConnectionOptions());
     console.log(`MongoDB connected successfully to host: ${conn.connection.host}`);
     return conn;
   } catch (error) {
-    console.error("MongoDB connection error:", error);
-    throw error;
+    const sanitized = sanitizeMongoError(error);
+    console.error("MongoDB connection error:", sanitized);
+    throw sanitized;
   }
 }
 

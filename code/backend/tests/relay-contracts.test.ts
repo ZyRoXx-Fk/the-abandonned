@@ -260,8 +260,8 @@ test("customer and amendment inputs reject invalid IDs, impossible dates, inject
   );
 });
 
-test("proposalRecordSchema validates hotel amendment summaries with checked stay arithmetic", () => {
-  const validAmendmentProposal = {
+test("proposalRecordSchema validates complete amendment snapshots with checked stay arithmetic", () => {
+  const validHotelAmendmentProposal = {
     id: "proposal_1",
     principal: { role: "client", userId: "client_1" },
     revision: 1,
@@ -283,6 +283,8 @@ test("proposalRecordSchema validates hotel amendment summaries with checked stay
         kind: "hotel_booking",
         reservationId: "reservation_1",
         expectedReservationRevision: 2,
+        businessId: "business_1",
+        roomTypeId: "suite",
         checkIn: "2027-03-27",
         checkOut: "2027-03-29",
         nights: ["2027-03-27", "2027-03-28"],
@@ -304,16 +306,75 @@ test("proposalRecordSchema validates hotel amendment summaries with checked stay
     durableResultRef: null,
   };
 
-  assert.equal(proposalRecordSchema.safeParse(validAmendmentProposal).success, true);
+  assert.equal(proposalRecordSchema.safeParse(validHotelAmendmentProposal).success, true);
   assert.equal(
     proposalRecordSchema.safeParse({
-      ...validAmendmentProposal,
+      ...validHotelAmendmentProposal,
       summary: {
         kind: "reservation_amendment",
         summary: {
-          ...validAmendmentProposal.summary.summary,
+          ...validHotelAmendmentProposal.summary.summary,
+          roomTypeId: undefined,
+        },
+      },
+    }).success,
+    false,
+  );
+  assert.equal(
+    proposalRecordSchema.safeParse({
+      ...validHotelAmendmentProposal,
+      summary: {
+        kind: "reservation_amendment",
+        summary: {
+          ...validHotelAmendmentProposal.summary.summary,
           nights: ["2027-03-27"],
           totalPrice: { amountMinor: 18000, currency: "CHF" },
+        },
+      },
+    }).success,
+    false,
+  );
+
+  const validRestaurantAmendmentProposal = {
+    ...validHotelAmendmentProposal,
+    id: "proposal_2",
+    payload: {
+      kind: "reservation_amendment",
+      amendment: {
+        kind: "restaurant_booking",
+        reservationId: "reservation_2",
+        expectedReservationRevision: 1,
+        slotId: "slot_2",
+        partySize: 4,
+      },
+    },
+    summary: {
+      kind: "reservation_amendment",
+      summary: {
+        kind: "restaurant_booking",
+        reservationId: "reservation_2",
+        expectedReservationRevision: 1,
+        businessId: "business_1",
+        slotId: "slot_2",
+        slotDate: "2027-03-05",
+        startTime: "20:00",
+        endTime: "22:00",
+        partySize: 4,
+        policies: ["Arrive on time."],
+        paymentNotice: "No payment is collected for this reservation.",
+      },
+    },
+  };
+
+  assert.equal(proposalRecordSchema.safeParse(validRestaurantAmendmentProposal).success, true);
+  assert.equal(
+    proposalRecordSchema.safeParse({
+      ...validRestaurantAmendmentProposal,
+      summary: {
+        kind: "reservation_amendment",
+        summary: {
+          ...validRestaurantAmendmentProposal.summary.summary,
+          startTime: undefined,
         },
       },
     }).success,

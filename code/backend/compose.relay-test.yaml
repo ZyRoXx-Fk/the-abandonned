@@ -1,0 +1,19 @@
+services:
+  relay-mongo:
+    image: mongo:8.0
+    container_name: relay-mongo-rs
+    command:
+      - --bind_ip
+      - 0.0.0.0
+      - --port
+      - "27018"
+      - --replSet
+      - relay-rs
+    ports:
+      - "127.0.0.1:27018:27018"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--port", "27018", "--eval", "db.adminCommand({ ping: 1 }).ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
