@@ -3,6 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import Header from '../Header.astro';
 import Footer from '../Footer.astro';
 import Icon from '../Icon.astro';
+import PairingPanel from '../PairingPanel.astro';
 import type { Role, AuthAction } from '../../lib/profiles';
 import { localizedPath, translations, type Locale } from '../../i18n';
 
@@ -55,6 +56,7 @@ const formMessages = {
 					<div class="account-panel" data-account-panel tabindex="-1" hidden>
 						<p class="account-status" role="status" aria-live="polite" data-account-status></p>
 						<div class="account-profile"><Icon name="check" size={20} /><div><p class="account-name" data-account-name></p><p class="account-email" data-account-email></p></div></div>
+						<PairingPanel role={role} locale={locale} />
 						<a class="button" href={localizedPath(locale)}>{t.auth.continueHome}</a>
 						<button class="logout-button" type="button" data-logout>{t.auth.logout}</button>
 					</div>
