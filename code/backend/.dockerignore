@@ -1,0 +1,9 @@
+# Only send the backend build inputs to Docker (never secrets or local dependencies).
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+**/.env
+**/.env.*
