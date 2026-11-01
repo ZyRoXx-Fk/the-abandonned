@@ -52,6 +52,7 @@ async function buildIndexes(connection: Connection): Promise<void> {
 }
 
 export async function buildMongoHarness(): Promise<{
+  connection: Connection;
   catalog: MongoCatalogRepository;
   proposals: MongoProposalRepository;
   transactions: MongoTransactionRepository;
@@ -70,6 +71,7 @@ export async function buildMongoHarness(): Promise<{
     const uow = new MongoUnitOfWork(connection);
 
     return {
+      connection,
       catalog,
       proposals,
       transactions,

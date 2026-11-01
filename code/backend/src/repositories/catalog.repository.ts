@@ -10,6 +10,7 @@ import {
   businessQuerySchema,
   publicBusinessSchema,
   type BusinessDraft,
+  type BusinessProfile,
   type BusinessPage,
   type BusinessQuery,
   type InventoryInput,
@@ -204,40 +205,25 @@ function parseInventoryRecord(document: InventoryDocument): InventoryRecord {
 }
 
 function buildAvailability(records: InventoryDocument[]): PublicBusiness["availability"] {
-  return records
-    .filter((record) => record.published)
-    .map((record) => {
-      if (record.kind === "sellable_variant") {
-        return {
-          kind: "sellable_variant" as const,
-          offeringId: record.offeringId ?? "",
-          variantId: record.variantId ?? "",
-          availableUnits: Math.max(record.remainingUnits ?? 0, 0),
-          updatedAt: record.updatedAt,
-        };
-      }
-      if (record.kind === "restaurant_slot") {
-        return {
-          kind: "restaurant_slot" as const,
-          slotId: record.slotId ?? "",
-          slotDate: record.slotDate ?? "",
-          startTime: record.startTime ?? "",
-          endTime: record.endTime ?? "",
-          availableSeats: Math.max((record.totalCapacity ?? 0) - (record.allocatedCapacity ?? 0), 0),
-          minPartySize: record.minPartySize ?? 1,
-          maxPartySize: record.maxPartySize ?? 1,
-          updatedAt: record.updatedAt,
-        };
-      }
-      return {
-        kind: "room_night" as const,
-        roomTypeId: record.roomTypeId ?? "",
-        localNight: record.localNight ?? "",
-        availableRooms: Math.max((record.totalCapacity ?? 0) - (record.allocatedCapacity ?? 0), 0),
-        updatedAt: record.updatedAt,
-      };
-    })
-    .sort((left, right) => stableStringify(left).localeCompare(stableStringify(right)));
+  return records.flatMap<PublicBusiness['availability'][number]>(record => {
+    if (!record.published) return [];
+    if (record.kind === 'sellable_variant') {
+      if (record.remainingUnits == null || !record.offeringId || !record.variantId) return [];
+      return [{ kind: record.kind, offeringId: record.offeringId, variantId: record.variantId,
+        availableUnits: record.remainingUnits, updatedAt: record.updatedAt }];
+    }
+    if (record.totalCapacity == null || record.allocatedCapacity == null) return [];
+    const available = record.totalCapacity - record.allocatedCapacity;
+    if (record.kind === 'restaurant_slot') {
+      if (!record.slotId || !record.slotDate || !record.startTime || !record.endTime || record.minPartySize == null || record.maxPartySize == null) return [];
+      return [{ kind: record.kind, slotId: record.slotId, slotDate: record.slotDate, startTime: record.startTime,
+        endTime: record.endTime, availableSeats: available, minPartySize: record.minPartySize,
+        maxPartySize: record.maxPartySize, updatedAt: record.updatedAt }];
+    }
+    if (record.kind !== 'room_night' || !record.roomTypeId || !record.localNight) return [];
+    return [{ kind: record.kind, roomTypeId: record.roomTypeId, localNight: record.localNight,
+      availableRooms: available, updatedAt: record.updatedAt }];
+  }).sort((left, right) => stableStringify(left).localeCompare(stableStringify(right)));
 }
 
 function assertOwnerScope(principal: Principal, ownerId: string): void {
@@ -276,6 +262,37 @@ function assertOfferingRefs(draft: BusinessDraft): Map<string, OfferingInput> {
   return offeringById;
 }
 
+// Only these published fields may cross the public read boundary.
+const publishedBusinessFields = 'relayBusinessId relayCategory relayRevision relayProfile relayPublishedAt relayUpdatedAt -_id';
+const publishedBusinessFilter = {
+  relayBusinessId: { $type: 'string' as const }, relayRevision: { $gte: 1 },
+  relayCategory: { $in: ['restaurant', 'hotel', 'shop'] as const },
+  relayPublishedAt: { $type: 'string' as const }, relayProfile: { $type: 'object' as const },
+};
+
+function projectProfile(p: BusinessProfile): BusinessProfile {
+  const c = p.categoryConfig;
+  const range = (r: { startTime: string; endTime: string } | undefined) => r ? { startTime: r.startTime, endTime: r.endTime } : undefined;
+  return {
+    name: p.name, address: p.address, description: p.description,
+    contact: { ...(p.contact.email !== undefined ? { email: p.contact.email } : {}), ...(p.contact.phone !== undefined ? { phone: p.contact.phone } : {}), ...(p.contact.websiteUrl !== undefined ? { websiteUrl: p.contact.websiteUrl } : {}) },
+    timezone: p.timezone, currency: p.currency, finalPriceDescription: p.finalPriceDescription, policies: p.policies,
+    openingHours: p.openingHours.map(h => ({ day: h.day, intervals: h.intervals.map(i => ({ startTime: i.startTime, endTime: i.endTime })) })),
+    serviceHours: p.serviceHours.map(h => ({ id: h.id, label: h.label, days: h.days, startTime: h.startTime, endTime: h.endTime })),
+    categoryConfig: c.kind === 'restaurant' ? { kind: c.kind, cuisine: c.cuisine, amenities: c.amenities, ...(c.reservationPolicy !== undefined ? { reservationPolicy: c.reservationPolicy } : {}) }
+      : c.kind === 'hotel' ? { kind: c.kind, amenities: c.amenities, ...(c.checkInWindow ? { checkInWindow: range(c.checkInWindow) } : {}), ...(c.checkOutWindow ? { checkOutWindow: range(c.checkOutWindow) } : {}) }
+      : { kind: c.kind, amenities: c.amenities, ...(c.pickupNotes !== undefined ? { pickupNotes: c.pickupNotes } : {}) },
+  };
+}
+
+function projectOffering(o: OfferingInput): OfferingInput {
+  const metadata = (entries: { key: string; value: string }[]) => entries.map(e => ({ key: e.key, value: e.value }));
+  const money = (m: { amountMinor: number; currency: string }) => ({ amountMinor: m.amountMinor, currency: m.currency });
+  const common = { id: o.id, active: o.active, name: o.name, ...(o.description !== undefined ? { description: o.description } : {}), metadata: metadata(o.metadata) };
+  return o.kind === 'room_type' ? { ...common, kind: o.kind, maxGuests: o.maxGuests, nightlyRate: money(o.nightlyRate) }
+    : { ...common, kind: o.kind, variants: o.variants.map(v => ({ id: v.id, name: v.name, ...(v.description !== undefined ? { description: v.description } : {}), unitPrice: money(v.unitPrice), metadata: metadata(v.metadata) })) };
+}
+
 function toPublicBusiness(document: {
   relayBusinessId?: string;
   relayCategory?: string;
@@ -288,8 +305,8 @@ function toPublicBusiness(document: {
     businessId: document.relayBusinessId,
     category: document.relayCategory,
     revision: document.relayRevision,
-    profile: document.relayProfile,
-    offerings: offerings.filter((entry) => entry.published).map((entry) => entry.payload),
+    profile: projectProfile(document.relayProfile as BusinessProfile),
+    offerings: offerings.filter((entry) => entry.published).map((entry) => projectOffering(entry.payload as OfferingInput)),
     availability: buildAvailability(inventory),
     publishedAt: document.relayPublishedAt,
     updatedAt: document.relayUpdatedAt,
@@ -377,13 +394,13 @@ export class MongoCatalogRepository implements CatalogRepository {
   }
 
   async getPublished(businessId: string, tx?: ClientSession): Promise<PublicBusiness | null> {
-    const business = await this.businesses.findOne({ relayBusinessId: businessId }).session(tx ?? null).lean();
+    const business = await this.businesses.findOne({ ...publishedBusinessFilter, relayBusinessId: businessId }).select(publishedBusinessFields).session(tx ?? null).lean();
     if (!business?.relayBusinessId) {
       return null;
     }
 
-    const offerings = await this.offerings.find({ businessId }).sort({ offeringId: 1 }).session(tx ?? null).lean();
-    const inventory = await this.inventory.find({ businessId }).sort({ _id: 1 }).session(tx ?? null).lean();
+    const offerings = await this.offerings.find({ businessId, published: true }).select("payload published -_id").sort({ offeringId: 1 }).session(tx ?? null).lean();
+    const inventory = await this.inventory.find({ businessId, published: true }).select("kind offeringId variantId remainingUnits slotId slotDate startTime endTime totalCapacity allocatedCapacity minPartySize maxPartySize roomTypeId localNight updatedAt published -_id").sort({ _id: 1 }).session(tx ?? null).lean();
 
     return toPublicBusiness(business, offerings, inventory);
   }
@@ -391,8 +408,7 @@ export class MongoCatalogRepository implements CatalogRepository {
   async searchPublished(query: BusinessQuery): Promise<BusinessPage> {
     const parsed = businessQuerySchema.parse(query);
     const filter: Record<string, unknown> = {
-      relayBusinessId: { $exists: true },
-      relayRevision: { $exists: true },
+      ...publishedBusinessFilter,
     };
 
     if (parsed.category) {
@@ -414,7 +430,7 @@ export class MongoCatalogRepository implements CatalogRepository {
 
     const [total, documents] = await Promise.all([
       this.businesses.countDocuments(filter),
-      this.businesses.find(filter)
+      this.businesses.find(filter).select(publishedBusinessFields)
         .sort({ relayUpdatedAt: -1, relayBusinessId: 1 })
         .skip(parsed.offset)
         .limit(parsed.limit)
@@ -442,7 +458,7 @@ export class MongoCatalogRepository implements CatalogRepository {
   }
 
   async listOwnerBusinesses(ownerId: string): Promise<PublicBusiness[]> {
-    const documents = await this.businesses.find({ relayOwnerId: ownerId, relayBusinessId: { $exists: true } })
+    const documents = await this.businesses.find({ ...publishedBusinessFilter, relayOwnerId: ownerId }).select("relayBusinessId -_id")
       .sort({ relayUpdatedAt: -1, relayBusinessId: 1 })
       .lean();
 

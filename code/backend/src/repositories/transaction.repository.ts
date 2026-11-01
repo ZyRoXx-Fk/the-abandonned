@@ -309,8 +309,8 @@ export class MongoTransactionRepository implements TransactionRepository {
     const boundedLimit = boundLimit(limit);
     const fetchSize = boundedOffset + boundedLimit;
     const [orders, reservations] = await Promise.all([
-      this.orders.find({ ownerId, businessId }).sort({ createdAt: -1, _id: -1 }).limit(fetchSize).lean(),
-      this.reservations.find({ ownerId, businessId }).sort({ createdAt: -1, _id: -1 }).limit(fetchSize).lean(),
+      this.orders.find({ ownerId, businessId }).select("result createdAt -_id").sort({ createdAt: -1, _id: -1 }).limit(fetchSize).lean(),
+      this.reservations.find({ ownerId, businessId }).select("result createdAt -_id").sort({ createdAt: -1, _id: -1 }).limit(fetchSize).lean(),
     ]);
 
     return [...orders.map((document) => ({ createdAt: document.createdAt, result: document.result })), ...reservations.map((document) => ({ createdAt: document.createdAt, result: document.result }))]

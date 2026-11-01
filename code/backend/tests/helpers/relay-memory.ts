@@ -4,18 +4,20 @@ import { inventoryKeyForInput } from '../../src/repositories/catalog.repository.
 import type { ProposalRepository } from '../../src/repositories/proposal.repository.js';
 import type { TransactionRepository } from '../../src/repositories/transaction.repository.js';
 import type { UnitOfWork } from '../../src/repositories/unit-of-work.js';
-import { businessDraftSchema, publicBusinessSchema, type BusinessDraft, type PublicBusiness } from '../../src/schemas/catalog.schema.js';
+import { businessDraftSchema, publicBusinessSchema, businessPageSchema, businessQuerySchema, type BusinessDraft, type PublicBusiness } from '../../src/schemas/catalog.schema.js';
 import { commitResultSchema, proposalRecordSchema, type ProposalRecord, type CommitResult } from '../../src/schemas/action.schema.js';
 import { RelayError } from '../../src/utils/relay-error.js';
 
 // Serialized, snapshot/rollback transactions; deliberately not evidence of Mongo concurrency.
-export function createRelayMemory() {
+type MemoryAction = { ownerId: string; businessId: string; createdAt: string; result: import('../../src/schemas/action.schema.js').ActionResult };
+export function createRelayMemory(initialActions: MemoryAction[] = []) {
   let drafts = new Map<string, BusinessDraft>();
   let businesses = new Map<string, { ownerId: string; value: PublicBusiness }>();
   let inventory = new Map<string, InventoryRecord>();
   let proposals = new Map<string, ProposalRecord>();
   let results = new Map<string, CommitResult>();
   let events: unknown[] = [];
+  const actions = structuredClone(initialActions);
   const copy = structuredClone;
   let tail: Promise<unknown> = Promise.resolve();
   const tx = new mongoose.mongo.MongoClient('mongodb://127.0.0.1:27017').startSession();
@@ -37,9 +39,20 @@ export function createRelayMemory() {
     async replaceDraft(draft, expected) { const d = drafts.get(draft.id); if (!d || d.ownerId !== draft.ownerId || d.revision !== expected) return false; drafts.set(draft.id, businessDraftSchema.parse(draft)); return true; },
     async fenceDraft(ownerId, id, expected) { const d = drafts.get(id); return d?.ownerId === ownerId && d.revision === expected; },
     async getPublished(id) { return copy(businesses.get(id)?.value ?? null); },
+    async searchPublished(query) {
+      const q = businessQuerySchema.parse(query);
+      const items = [...businesses.values()].map(b => b.value).filter(b => (!q.category || b.category === q.category)
+        && (!q.text || [b.profile.name, b.profile.description].some(v => v.toLowerCase().includes(q.text!.toLowerCase())))
+        && (!q.addressText || b.profile.address.toLowerCase().includes(q.addressText.toLowerCase()))
+        && q.amenities.every(a => b.profile.categoryConfig.amenities.includes(a)))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.businessId.localeCompare(b.businessId));
+      return businessPageSchema.parse({ items: items.slice(q.offset, q.offset + q.limit).map(b => ({
+        businessId: b.businessId, category: b.category, name: b.profile.name, address: b.profile.address,
+        description: b.profile.description, currency: b.profile.currency, timezone: b.profile.timezone,
+        amenities: b.profile.categoryConfig.amenities, revision: b.revision, publishedAt: b.publishedAt, updatedAt: b.updatedAt,
+      })), offset: q.offset, limit: q.limit, total: items.length });
+    },
     async listOwnerBusinesses(ownerId) { return copy([...businesses.values()].filter(b => b.ownerId === ownerId).map(b => b.value)); },
-    async searchPublished(query) { const all = [...businesses.values()].map(b => b.value).filter(b => (!query.category || b.category === query.category) && (!query.text || `${b.profile.name} ${b.profile.description}`.toLowerCase().includes(query.text.toLowerCase())) && (!query.addressText || b.profile.address.toLowerCase().includes(query.addressText.toLowerCase())) && query.amenities.every(a => b.profile.categoryConfig.amenities.includes(a)));
-      return { items: copy(all.slice(query.offset, query.offset + query.limit).map(b => ({ businessId: b.businessId, category: b.category, name: b.profile.name, address: b.profile.address, description: b.profile.description, currency: b.profile.currency, timezone: b.profile.timezone, amenities: b.profile.categoryConfig.amenities, revision: b.revision, publishedAt: b.publishedAt, updatedAt: b.updatedAt }))), total: all.length, offset: query.offset, limit: query.limit }; },
     async getInventory(keys) { return copy(keys.flatMap(k => inventory.has(k) ? [inventory.get(k)!] : [])); },
     async applyAllocations(changes) {
       const merged = new Map<string, number>();
@@ -89,7 +102,12 @@ export function createRelayMemory() {
     async getCommittedResult(id) { return copy(results.get(id) ?? null); },
     async markCommitted(id, revision, result) { const p = proposals.get(id); if (!p || p.revision !== revision || p.state !== 'pending') return false; p.state = 'committed'; p.revision++; p.durableResultRef = `result_${id}`; results.set(id, commitResultSchema.parse(result)); return true; },
   };
-  const transactions: Pick<TransactionRepository, "appendEvent"> = {
+  const transactions: Pick<TransactionRepository, "appendEvent" | "listOwnerActions"> = {
+    async listOwnerActions(ownerId, businessId, offset, limit) {
+      return actions.filter(a => a.ownerId === ownerId && a.businessId === businessId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.result.id.localeCompare(a.result.id))
+        .slice(offset, offset + limit).map(a => structuredClone(a.result));
+    },
     async appendEvent(principal, proposal, result) { events.push(copy({ principal, proposal, result })); },
   };
   return { catalog, proposals: proposalPort, transactions, uow };

@@ -392,8 +392,14 @@ const publicAvailabilitySchema = z.discriminatedUnion("kind", [
   publicRoomNightAvailabilitySchema,
 ]);
 
+// Category capabilities do not assert availability or independent certification.
+export function supportedActionKindsForCategory(category: 'restaurant' | 'hotel' | 'shop'): Array<'order' | 'restaurant_booking' | 'hotel_booking'> {
+  return category === 'restaurant' ? ['order', 'restaurant_booking'] : category === 'hotel' ? ['hotel_booking'] : ['order'];
+}
+
 export const publicBusinessSchema = z.object({
   businessId: relayIdSchema,
+  supportedActionKinds: z.array(z.enum(['order', 'restaurant_booking', 'hotel_booking'])).optional(),
   category: businessCategorySchema,
   revision: nonNegativeSafeIntegerSchema,
   profile: businessProfileSchemaBase,
@@ -420,10 +426,11 @@ export const publicBusinessSchema = z.object({
   });
 
   refineOfferingCurrencies(business.profile.currency, business.offerings, ctx);
-});
+}).transform(value => ({ ...value, supportedActionKinds: supportedActionKindsForCategory(value.category) }));
 
 const publicBusinessSummarySchema = z.object({
   businessId: relayIdSchema,
+  supportedActionKinds: z.array(z.enum(['order', 'restaurant_booking', 'hotel_booking'])).optional(),
   category: businessCategorySchema,
   name: boundedText(120),
   address: boundedText(240),
@@ -434,7 +441,7 @@ const publicBusinessSummarySchema = z.object({
   revision: nonNegativeSafeIntegerSchema,
   publishedAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
-}).strict();
+}).strict().transform(value => ({ ...value, supportedActionKinds: supportedActionKindsForCategory(value.category) }));
 
 export const businessQuerySchema = z.object({
   category: businessCategorySchema.optional(),
