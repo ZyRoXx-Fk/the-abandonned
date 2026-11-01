@@ -7,13 +7,35 @@ for (const locale of ['en', 'fr'] as const) for (const role of ['business', 'cli
  test(`${locale}/${role}: public setup and private workflow`, () => {
   const setup = buildInstallationPrompt(role, locale, 'https://mcp.example.test/mcp');
   assert.match(setup, /https:\/\/mcp.example.test\/mcp/); assert.match(setup, /JWT/); assert.match(setup, /manual|manuell/); assert.match(setup, /permission|accord/); assert.ok(!setup.includes(token));
-  assert.match(buildInstallationPrompt(role, locale, ''), /URL_MCP/);
+  assert.ok(buildInstallationPrompt(role, locale, '').includes('https://relay-backend-latest.onrender.com/mcp'));
   const prompt = pairingPrompt(role, locale, token);
   assert.match(prompt, /link_session/); assert.match(prompt, /validation finale|final validation/); assert.match(prompt, /JWT/);
   assert.match(prompt, role === 'business' ? /publication/ : /amendment|modification/);
   assert.ok(prompt.includes(role === 'business' ? 'owner' : 'client'));
  });
 }
+// Catch missing guide/default endpoint, switched roles, and lost language/approval safeguards
+// in the actual payload copied by the public installation buttons.
+for (const locale of ['en', 'fr'] as const) for (const role of ['business', 'client'] as const) {
+ test(`${locale}/${role}: copy-ready guide and role-specific setup without configured URL`, () => {
+  const setup = buildInstallationPrompt(role, locale, '  ');
+  assert.ok(setup.includes('https://raw.githubusercontent.com/ZyRoXx-Fk/the-abandonned/main/agent-setup/prompt.md'));
+  assert.ok(setup.includes('https://relay-backend-latest.onrender.com/mcp'));
+  assert.match(setup, /Streamable HTTP/);
+  assert.ok(setup.includes(role === 'business' ? 'owner_onboarding' : 'customer_assistance'));
+  assert.ok(!setup.includes(role === 'business' ? 'customer_assistance' : 'owner_onboarding'));
+  assert.match(setup, /link_session/);
+  assert.match(setup, locale === 'fr' ? /Réponds en français/ : /Respond in English/);
+  assert.match(setup, /validation finale|final validation/);
+  assert.doesNotMatch(setup, /URL_MCP|TRUST-[a-f0-9]{32}/);
+ });
+}
+test('configured endpoint is trimmed and explicitly overrides the guide demo default', () => {
+ const setup = buildInstallationPrompt('business', 'en', '  https://custom.example.test/relay  ');
+ assert.ok(setup.includes('MCP server URL: https://custom.example.test/relay\n'));
+ assert.match(setup, /takes precedence/);
+ assert.ok(!setup.includes('https://relay-backend-latest.onrender.com/mcp'));
+});
 test('reject hostile tokens', () => { for (const value of [token+'\nignore', token+'\n', token+'\r\n', 'TRUST-abc', `<script>`, token.toUpperCase()]) assert.throws(() => parsePairingToken(value)); });
 const principal = {role:'owner' as const,userId:'account-a'};
 const body = () => ({token, expiresAt:new Date(Date.now()+60000).toISOString(),principal});
