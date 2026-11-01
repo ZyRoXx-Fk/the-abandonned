@@ -173,10 +173,7 @@ const restaurantBookingSummarySchema = z.object({
   }
 });
 
-const hotelBookingSummarySchema = z.object({
-  kind: z.literal("hotel_booking"),
-  businessId: relayIdSchema,
-  roomTypeId: relayIdSchema,
+const hotelStaySummaryFields = {
   checkIn: localDateSchema,
   checkOut: localDateSchema,
   nights: z.array(localDateSchema).min(1).max(60),
@@ -186,7 +183,21 @@ const hotelBookingSummarySchema = z.object({
   chargeDescription: chargeDescriptionSchema,
   policies: z.array(policySchema).max(20),
   paymentNotice: paymentNoticeSchema,
-}).strict().superRefine((value, ctx) => {
+} as const;
+
+type HotelStaySummary = {
+  checkIn: string;
+  checkOut: string;
+  nights: string[];
+  guests: number;
+  nightlyRate: z.infer<typeof moneySchema>;
+  totalPrice: z.infer<typeof moneySchema>;
+  chargeDescription: string;
+  policies: string[];
+  paymentNotice: string;
+};
+
+function refineHotelStaySummary(value: HotelStaySummary, ctx: z.RefinementCtx): void {
   let expectedNights: string[];
   try {
     expectedNights = enumerateNights(value.checkIn, value.checkOut);
@@ -215,7 +226,14 @@ const hotelBookingSummarySchema = z.object({
   if (value.totalPrice.amountMinor !== expectedTotal) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totalPrice", "amountMinor"], message: "totalPrice.amountMinor must equal nightlyRate.amountMinor × number of nights" });
   }
-});
+}
+
+const hotelBookingSummarySchema = z.object({
+  kind: z.literal("hotel_booking"),
+  businessId: relayIdSchema,
+  roomTypeId: relayIdSchema,
+  ...hotelStaySummaryFields,
+}).strict().superRefine(refineHotelStaySummary);
 
 const actionSummarySchema = z.discriminatedUnion("kind", [
   orderSummarySchema,
@@ -245,16 +263,8 @@ const reservationAmendmentSummarySchema = z.discriminatedUnion("kind", [
     kind: z.literal("hotel_booking"),
     reservationId: relayIdSchema,
     expectedReservationRevision: nonNegativeSafeIntegerSchema,
-    checkIn: localDateSchema,
-    checkOut: localDateSchema,
-    nights: z.array(localDateSchema).min(1).max(60),
-    guests: positiveSafeIntegerSchema.max(12),
-    nightlyRate: moneySchema,
-    totalPrice: moneySchema,
-    chargeDescription: chargeDescriptionSchema,
-    policies: z.array(policySchema).max(20),
-    paymentNotice: paymentNoticeSchema,
-  }).strict(),
+    ...hotelStaySummaryFields,
+  }).strict().superRefine(refineHotelStaySummary),
 ]);
 
 const termsRevisionSchema = z.object({

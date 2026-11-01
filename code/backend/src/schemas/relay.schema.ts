@@ -3,6 +3,7 @@ import { normalizeLocalDate } from "../utils/local-date.js";
 
 const SUPPORTED_CURRENCIES = new Set(Intl.supportedValuesOf("currency"));
 const TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const ISO_DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(\.\d{1,9})?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 const HTTP_PROTOCOLS = new Set(["http:", "https:"]);
 const RELAY_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,63})$/;
 
@@ -20,7 +21,39 @@ function isFiniteNumber(value: number): boolean {
 }
 
 function isIsoDateTime(value: string): boolean {
-  return !Number.isNaN(Date.parse(value));
+  const match = ISO_DATE_TIME_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, fractionText, offsetText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const millisecond = Number((fractionText?.slice(1) ?? "").padEnd(3, "0").slice(0, 3) || "0");
+
+  let offsetMinutes = 0;
+  if (offsetText !== "Z") {
+    const sign = offsetText.startsWith("-") ? -1 : 1;
+    const [offsetHourText, offsetMinuteText] = offsetText.slice(1).split(":");
+    offsetMinutes = sign * ((Number(offsetHourText) * 60) + Number(offsetMinuteText));
+  }
+
+  const wallTimeUtc = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+  const instant = wallTimeUtc - (offsetMinutes * 60_000);
+  const shiftedWallTime = new Date(instant + (offsetMinutes * 60_000));
+
+  return !Number.isNaN(instant)
+    && shiftedWallTime.getUTCFullYear() === year
+    && shiftedWallTime.getUTCMonth() === month - 1
+    && shiftedWallTime.getUTCDate() === day
+    && shiftedWallTime.getUTCHours() === hour
+    && shiftedWallTime.getUTCMinutes() === minute
+    && shiftedWallTime.getUTCSeconds() === second
+    && shiftedWallTime.getUTCMilliseconds() === millisecond;
 }
 
 function isIanaTimeZone(value: string): boolean {

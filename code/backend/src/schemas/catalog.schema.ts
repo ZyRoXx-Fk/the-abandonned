@@ -244,6 +244,39 @@ function inventoryMatchesCategory(category: z.infer<typeof businessCategorySchem
   return inventoryKind === "sellable_variant";
 }
 
+function refineOfferingCurrencies(
+  businessCurrency: string | undefined,
+  offerings: z.infer<typeof offeringInputSchema>[],
+  ctx: z.RefinementCtx,
+): void {
+  if (!businessCurrency) {
+    return;
+  }
+
+  offerings.forEach((offering, offeringIndex) => {
+    if (offering.kind === "room_type") {
+      if (offering.nightlyRate.currency !== businessCurrency) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["offerings", offeringIndex, "nightlyRate", "currency"],
+          message: "Offering prices must match the business currency",
+        });
+      }
+      return;
+    }
+
+    offering.variants.forEach((variant, variantIndex) => {
+      if (variant.unitPrice.currency !== businessCurrency) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["offerings", offeringIndex, "variants", variantIndex, "unitPrice", "currency"],
+          message: "Offering prices must match the business currency",
+        });
+      }
+    });
+  });
+}
+
 export const businessDraftSchema = z.object({
   id: relayIdSchema,
   businessId: relayIdSchema,
@@ -274,6 +307,8 @@ export const businessDraftSchema = z.object({
       });
     }
   });
+
+  refineOfferingCurrencies(draft.profile.currency, draft.offerings, ctx);
 
   draft.inventoryEdits.forEach((inventory, index) => {
     if (!inventoryMatchesCategory(draft.category, inventory.kind)) {
@@ -367,6 +402,8 @@ export const publicBusinessSchema = z.object({
       });
     }
   });
+
+  refineOfferingCurrencies(business.profile.currency, business.offerings, ctx);
 });
 
 const publicBusinessSummarySchema = z.object({

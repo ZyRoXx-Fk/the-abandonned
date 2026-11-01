@@ -2,8 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { RelayError } from "../src/utils/relay-error.js";
 import { enumerateNights } from "../src/utils/local-date.js";
-import { businessDraftSchema, businessQuerySchema, offeringInputSchema, inventoryInputSchema } from "../src/schemas/catalog.schema.js";
-import { approvalSchema, actionResultSchema, amendmentSchema, customerActionSchema } from "../src/schemas/action.schema.js";
+import { isoDateTimeSchema } from "../src/schemas/relay.schema.js";
+import { businessDraftSchema, businessQuerySchema, offeringInputSchema, inventoryInputSchema, publicBusinessSchema } from "../src/schemas/catalog.schema.js";
+import { approvalSchema, actionResultSchema, amendmentSchema, customerActionSchema, proposalRecordSchema } from "../src/schemas/action.schema.js";
 
 test("approval requires an explicit approved:true acknowledgement", () => {
   assert.equal(approvalSchema.safeParse({ proposalId: "p", revision: 1 }).success, false);
@@ -14,6 +15,14 @@ test("approval requires an explicit approved:true acknowledgement", () => {
 test("enumerateNights counts local calendar nights across Europe/Zurich DST changes", () => {
   assert.deepEqual(enumerateNights("2027-03-27", "2027-03-29"), ["2027-03-27", "2027-03-28"]);
   assert.throws(() => enumerateNights("2027-03-29", "2027-03-29"), /Check-out must be after check-in/);
+});
+
+test("isoDateTimeSchema requires ISO 8601 timestamps with an explicit timezone", () => {
+  assert.equal(isoDateTimeSchema.safeParse("2027-03-01T12:00:00.000Z").success, true);
+  assert.equal(isoDateTimeSchema.safeParse("2027-03-01T12:00:00+01:00").success, true);
+  assert.equal(isoDateTimeSchema.safeParse("2027-03-01T12:00:00").success, false);
+  assert.equal(isoDateTimeSchema.safeParse("2027-03-01").success, false);
+  assert.equal(isoDateTimeSchema.safeParse("03/01/2027 12:00").success, false);
 });
 
 test("offeringInputSchema allows zero-priced offerings but rejects invalid currencies and IDs", () => {
@@ -84,7 +93,7 @@ test("inventoryInputSchema rejects fractional quantities, negatives, impossible 
   );
 });
 
-test("businessDraftSchema keeps category-specific configuration aligned while allowing partial hotel drafts", () => {
+test("business draft and public business schemas enforce category alignment and a single business currency", () => {
   const partialHotelDraft = {
     id: "draft_1",
     businessId: "business_1",
@@ -134,6 +143,67 @@ test("businessDraftSchema keeps category-specific configuration aligned while al
       ],
     }).success,
     false,
+  );
+  assert.equal(
+    businessDraftSchema.safeParse({
+      ...partialHotelDraft,
+      offerings: [
+        {
+          kind: "room_type",
+          id: "suite",
+          active: true,
+          name: "Suite",
+          maxGuests: 2,
+          nightlyRate: { amountMinor: 25000, currency: "EUR" },
+        },
+      ],
+    }).success,
+    false,
+  );
+
+  const publicHotelBusiness = {
+    businessId: "business_1",
+    category: "hotel",
+    revision: 2,
+    profile: {
+      name: "Alpine Stay",
+      address: "Bahnhofstrasse 1, Zurich",
+      description: "Central hotel",
+      contact: { email: "hello@example.com" },
+      timezone: "Europe/Zurich",
+      currency: "CHF",
+      openingHours: [{ day: "monday", intervals: [{ startTime: "00:00", endTime: "23:59" }] }],
+      serviceHours: [{ id: "checkin", label: "Check-in", days: ["monday"], startTime: "15:00", endTime: "21:00" }],
+      finalPriceDescription: "Taxes included.",
+      policies: ["Bring ID."],
+      categoryConfig: { kind: "hotel", amenities: ["wifi"] },
+    },
+    offerings: [
+      {
+        kind: "room_type",
+        id: "suite",
+        active: true,
+        name: "Suite",
+        maxGuests: 2,
+        nightlyRate: { amountMinor: 25000, currency: "EUR" },
+      },
+    ],
+    availability: [],
+    publishedAt: "2027-01-01T10:00:00.000Z",
+    updatedAt: "2027-01-01T10:00:00.000Z",
+  };
+  assert.equal(publicBusinessSchema.safeParse(publicHotelBusiness).success, false);
+  assert.equal(
+    publicBusinessSchema.safeParse({
+      ...publicHotelBusiness,
+      offerings: [
+        {
+          ...publicHotelBusiness.offerings[0],
+          nightlyRate: { amountMinor: 25000, currency: "CHF" },
+        },
+      ],
+    }).success,
+    true,
   );
 });
 
@@ -185,6 +255,67 @@ test("customer and amendment inputs reject invalid IDs, impossible dates, inject
       checkIn: "2027-03-02",
       checkOut: "2027-03-01",
       guests: 2,
+    }).success,
+    false,
+  );
+});
+
+test("proposalRecordSchema validates hotel amendment summaries with checked stay arithmetic", () => {
+  const validAmendmentProposal = {
+    id: "proposal_1",
+    principal: { role: "client", userId: "client_1" },
+    revision: 1,
+    kind: "reservation_amendment",
+    payload: {
+      kind: "reservation_amendment",
+      amendment: {
+        kind: "hotel_booking",
+        reservationId: "reservation_1",
+        expectedReservationRevision: 2,
+        checkIn: "2027-03-27",
+        checkOut: "2027-03-29",
+        guests: 2,
+      },
+    },
+    summary: {
+      kind: "reservation_amendment",
+      summary: {
+        kind: "hotel_booking",
+        reservationId: "reservation_1",
+        expectedReservationRevision: 2,
+        checkIn: "2027-03-27",
+        checkOut: "2027-03-29",
+        nights: ["2027-03-27", "2027-03-28"],
+        guests: 2,
+        nightlyRate: { amountMinor: 18000, currency: "CHF" },
+        totalPrice: { amountMinor: 36000, currency: "CHF" },
+        chargeDescription: "Demo stay.",
+        policies: ["Bring ID."],
+        paymentNotice: "Payment will be collected outside chat during the demo.",
+      },
+    },
+    termsRevision: {
+      businessRevision: 3,
+      offeringRevisions: [],
+      inventoryRevisions: [],
+    },
+    expiresAt: "2027-03-01T12:00:00.000Z",
+    state: "pending",
+    durableResultRef: null,
+  };
+
+  assert.equal(proposalRecordSchema.safeParse(validAmendmentProposal).success, true);
+  assert.equal(
+    proposalRecordSchema.safeParse({
+      ...validAmendmentProposal,
+      summary: {
+        kind: "reservation_amendment",
+        summary: {
+          ...validAmendmentProposal.summary.summary,
+          nights: ["2027-03-27"],
+          totalPrice: { amountMinor: 18000, currency: "CHF" },
+        },
+      },
     }).success,
     false,
   );
