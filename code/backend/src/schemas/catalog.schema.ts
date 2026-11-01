@@ -283,6 +283,8 @@ export const businessDraftSchema = z.object({
   ownerId: relayIdSchema,
   category: businessCategorySchema,
   revision: nonNegativeSafeIntegerSchema,
+  // Frozen when the draft is created; profile edits must not rebase competing publications.
+  baseBusinessRevision: nonNegativeSafeIntegerSchema.default(0),
   profile: draftBusinessProfileSchema,
   offerings: z.array(offeringInputSchema).max(200),
   inventoryEdits: z.array(inventoryInputSchema).max(1000),

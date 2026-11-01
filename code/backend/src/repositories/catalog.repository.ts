@@ -66,6 +66,8 @@ export interface CatalogRepository {
   listDrafts(ownerId: string, offset: number, limit: number): Promise<BusinessDraft[]>;
   insertDraft(draft: BusinessDraft): Promise<void>;
   replaceDraft(draft: BusinessDraft, expectedRevision: number): Promise<boolean>;
+  // A write in the publishing transaction, not a snapshot-only revision check.
+  fenceDraft(ownerId: string, draftId: string, expectedRevision: number, tx: ClientSession): Promise<boolean>;
   getPublished(businessId: string, tx?: ClientSession): Promise<PublicBusiness | null>;
   searchPublished(query: BusinessQuery): Promise<BusinessPage>;
   listOwnerBusinesses(ownerId: string): Promise<PublicBusiness[]>;
@@ -129,6 +131,7 @@ function parseDraft(document: {
   ownerId: string;
   category: string;
   revision: number;
+  baseBusinessRevision?: number;
   profile: unknown;
   offerings: unknown[];
   inventoryEdits: unknown[];
@@ -142,6 +145,7 @@ function parseDraft(document: {
     ownerId: document.ownerId,
     category: document.category,
     revision: document.revision,
+    baseBusinessRevision: document.baseBusinessRevision,
     profile: document.profile,
     offerings: document.offerings,
     inventoryEdits: document.inventoryEdits,
@@ -331,6 +335,7 @@ export class MongoCatalogRepository implements CatalogRepository {
       ownerId: parsed.ownerId,
       category: parsed.category,
       revision: parsed.revision,
+      baseBusinessRevision: parsed.baseBusinessRevision,
       profile: parsed.profile,
       offerings: parsed.offerings,
       inventoryEdits: parsed.inventoryEdits,
@@ -349,6 +354,7 @@ export class MongoCatalogRepository implements CatalogRepository {
           businessId: parsed.businessId,
           category: parsed.category,
           revision: parsed.revision,
+          baseBusinessRevision: parsed.baseBusinessRevision,
           profile: parsed.profile,
           offerings: parsed.offerings,
           inventoryEdits: parsed.inventoryEdits,
@@ -359,6 +365,14 @@ export class MongoCatalogRepository implements CatalogRepository {
       },
     );
 
+    return result.modifiedCount === 1;
+  }
+
+  async fenceDraft(ownerId: string, draftId: string, expectedRevision: number, tx: ClientSession): Promise<boolean> {
+    const result = await this.drafts.updateOne(
+      { _id: draftId, ownerId, revision: expectedRevision },
+      { $inc: { publicationFence: 1 } }, { session: tx },
+    );
     return result.modifiedCount === 1;
   }
 
@@ -441,12 +455,18 @@ export class MongoCatalogRepository implements CatalogRepository {
     assertOfferingRefs(parsedDraft);
 
     const existingBusiness = await this.businesses.findOne({ relayBusinessId: parsedDraft.businessId }).session(tx).lean();
+    if (existingBusiness && existingBusiness.relayOwnerId !== parsedDraft.ownerId) {
+      throw new RelayError("FORBIDDEN", "Business belongs to another owner.");
+    }
+    if ((existingBusiness?.relayRevision ?? 0) !== parsedDraft.baseBusinessRevision) {
+      throw new RelayError("STALE_REVISION", "Business changed since this draft was created.");
+    }
+    const publicationRevision = parsedDraft.baseBusinessRevision + 1;
     const existingOfferingDocs = await this.offerings.find({ businessId: parsedDraft.businessId }).session(tx).lean();
     const existingInventoryDocs = await this.inventory.find({ businessId: parsedDraft.businessId }).session(tx).lean();
 
     const existingOfferings = new Map(existingOfferingDocs.map((document) => [document.offeringId, document]));
     const existingInventory = new Map(existingInventoryDocs.map((document) => [document._id, document]));
-    const publishedKeys = new Set<string>();
     const nowUpdatedAt = parsedDraft.updatedAt;
 
     for (const offering of parsedDraft.offerings) {
@@ -481,7 +501,6 @@ export class MongoCatalogRepository implements CatalogRepository {
 
     for (const inventory of parsedDraft.inventoryEdits) {
       const key = inventoryKeyForInput(parsedDraft.businessId, inventory);
-      publishedKeys.add(key);
       const existing = existingInventory.get(key);
       if ((existing && inventory.expectedRevision !== existing.revision)
         || (!existing && inventory.expectedRevision !== undefined)) {
@@ -624,31 +643,14 @@ export class MongoCatalogRepository implements CatalogRepository {
       );
     }
 
-    for (const inventory of existingInventoryDocs) {
-      if (!publishedKeys.has(inventory._id) && inventory.published) {
-        if ((inventory.kind === "restaurant_slot" || inventory.kind === "room_night") && (inventory.allocatedCapacity ?? 0) > 0) {
-          await this.inventory.updateOne(
-            { _id: inventory._id },
-            { $set: { published: false, updatedAt: nowUpdatedAt } },
-            { session: tx },
-          );
-        } else {
-          await this.inventory.updateOne(
-            { _id: inventory._id },
-            { $set: { published: false, updatedAt: nowUpdatedAt } },
-            { session: tx },
-          );
-        }
-      }
-    }
-
+    // inventoryEdits is a delta: omitted rows retain live stock and allocations.
     const publishedOfferingDocs = await this.offerings.find({ businessId: parsedDraft.businessId, published: true }).session(tx).lean();
     const publishedInventoryDocs = await this.inventory.find({ businessId: parsedDraft.businessId, published: true }).session(tx).lean();
     const publishedAt = existingBusiness?.relayPublishedAt ?? nowUpdatedAt;
     const publicBusiness = toPublicBusiness({
       relayBusinessId: parsedDraft.businessId,
       relayCategory: parsedDraft.category,
-      relayRevision: parsedDraft.revision,
+      relayRevision: publicationRevision,
       relayProfile: parsedDraft.profile,
       relayPublishedAt: publishedAt,
       relayUpdatedAt: nowUpdatedAt,
@@ -719,7 +721,7 @@ export class MongoCatalogRepository implements CatalogRepository {
           : { _id: key };
         const result = await this.inventory.updateOne(
           filter,
-          { $inc: { remainingUnits: -delta } },
+          { $inc: { remainingUnits: -delta, revision: 1 } },
           { session: tx },
         );
         if (result.modifiedCount !== 1) {
@@ -742,7 +744,7 @@ export class MongoCatalogRepository implements CatalogRepository {
           : { _id: key, allocatedCapacity: { $gte: Math.abs(delta) } };
         const result = await this.inventory.updateOne(
           filter,
-          { $inc: { allocatedCapacity: delta } },
+          { $inc: { allocatedCapacity: delta, revision: 1 } },
           { session: tx },
         );
         if (result.modifiedCount !== 1) {

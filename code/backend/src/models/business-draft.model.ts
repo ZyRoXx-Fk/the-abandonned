@@ -6,6 +6,8 @@ const businessDraftSchema = new Schema({
   ownerId: { type: String, required: true, trim: true, index: true },
   category: { type: String, required: true, trim: true },
   revision: { type: Number, required: true, min: 0 },
+  publicationFence: { type: Number, default: 0 },
+  baseBusinessRevision: { type: Number, default: 0 },
   profile: { type: Schema.Types.Mixed, required: true, default: {} },
   offerings: { type: [Schema.Types.Mixed], required: true, default: [] },
   inventoryEdits: { type: [Schema.Types.Mixed], required: true, default: [] },
@@ -14,6 +16,7 @@ const businessDraftSchema = new Schema({
   updatedAt: { type: String, required: true, index: true },
 }, {
   versionKey: false,
+  minimize: false,
   collection: "relay_business_drafts",
 });
 

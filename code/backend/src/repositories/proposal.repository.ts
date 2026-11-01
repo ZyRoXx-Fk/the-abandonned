@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 export interface ProposalRepository {
   insert(record: ProposalRecord): Promise<void>;
   get(id: string, tx?: ClientSession): Promise<ProposalRecord | null>;
+  getCommittedResult(id: string, tx?: ClientSession): Promise<CommitResult | null>;
   markCommitted(id: string, expectedRevision: number, result: CommitResult, tx: ClientSession): Promise<boolean>;
 }
 
@@ -59,6 +60,11 @@ export class MongoProposalRepository implements ProposalRepository {
       state: document.state,
       durableResultRef: document.durableResultRef,
     });
+  }
+
+  async getCommittedResult(id: string, tx?: ClientSession): Promise<CommitResult | null> {
+    const document = await this.proposals.findOne({ _id: id, state: "committed" }).session(tx ?? null).lean();
+    return document?.durableResult ? commitResultSchema.parse(document.durableResult) : null;
   }
 
   async markCommitted(id: string, expectedRevision: number, result: CommitResult, tx: ClientSession): Promise<boolean> {

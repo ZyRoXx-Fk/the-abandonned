@@ -471,7 +471,7 @@ test("write-only UnitOfWork transaction returns undefined and persists exactly o
 
   assert.equal(result, undefined);
   assert.deepEqual(await harness.catalog.getInventory([key]), [
-    { ...before[0], allocatedCapacity: 1 },
+    { ...before[0], allocatedCapacity: 1, revision: 1 },
   ]);
 });
 
@@ -503,6 +503,7 @@ for (const draft of [variantDraft, { ...restaurantDraft, inventoryEdits: restaur
       const currentDraft = {
         ...draft,
         revision: 1,
+        baseBusinessRevision: 1,
         inventoryEdits: [{ ...updatedInventory, expectedRevision: 0 }],
       };
       await harness.uow.run((tx) => harness.catalog.publish(currentDraft, tx));
@@ -511,16 +512,17 @@ for (const draft of [variantDraft, { ...restaurantDraft, inventoryEdits: restaur
         return true;
       });
       const before = await harness.catalog.getInventory([key]);
-      assert.equal(before[0]?.revision, 1);
+      assert.equal(before[0]?.revision, 2);
       const publishedBefore = await harness.catalog.getPublished(draft.businessId);
       const edit = {
         ...updatedInventory,
         metadata: [{ key: "note", value: "Owner edit" }],
-        ...(revisionCase === "missing" ? {} : { expectedRevision: revisionCase === "stale" ? 0 : 1 }),
+        ...(revisionCase === "missing" ? {} : { expectedRevision: revisionCase === "stale" ? 1 : 2 }),
       };
       const nextDraft = {
         ...currentDraft,
         revision: 2,
+        baseBusinessRevision: 2,
         profile: { ...currentDraft.profile, description: "New published description" },
         inventoryEdits: [edit],
       };
@@ -537,14 +539,14 @@ for (const draft of [variantDraft, { ...restaurantDraft, inventoryEdits: restaur
       } else {
         await publish();
         const after = await harness.catalog.getInventory([key]);
-        assert.equal(after[0]?.revision, 2);
+        assert.equal(after[0]?.revision, 3);
         assert.deepEqual(after[0]?.metadata, edit.metadata);
         if (after[0]?.kind === "sellable_variant") {
           assert.equal(after[0].remainingUnits, updatedInventory.kind === "sellable_variant" ? updatedInventory.remainingUnits : undefined);
         } else {
           assert.equal(after[0]?.allocatedCapacity, 1);
         }
-        assert.equal((await harness.catalog.getPublished(draft.businessId))?.revision, 2);
+        assert.equal((await harness.catalog.getPublished(draft.businessId))?.revision, 3);
       }
     });
   }
