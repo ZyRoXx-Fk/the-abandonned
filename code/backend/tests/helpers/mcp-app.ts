@@ -1,3 +1,11 @@
+import { BusinessDraftService } from '../../src/services/business-draft.service.js';
+import { PublicationService } from '../../src/services/publication.service.js';
+import { DiscoveryService } from '../../src/services/discovery.service.js';
+import { ActionProposalService } from '../../src/services/action-proposal.service.js';
+import { ActionCommitService } from '../../src/services/action-commit.service.js';
+import { ReservationAmendmentService } from '../../src/services/reservation-amendment.service.js';
+import { auditService } from '../../src/services/audit.service.js';
+import { createRelayMemory } from './relay-memory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpSessionManager } from '../../src/utils/managers/mcp-session.manager.js';
@@ -36,13 +44,20 @@ export async function buildMcpTestApp(clock: Clock = () => new Date()) {
   const sessions = new McpSessionManager(clock);
   const tokens = new MemoryTokens();
   const pairing = new LinkTokenService(tokens, sessions, clock);
-  const service = new McpService(sessions, pairing);
+  const storage = createRelayMemory();
+  const { catalog, proposals, transactions, uow } = storage;
+  const service = new McpService(sessions, pairing, {
+    drafts: new BusinessDraftService(catalog, clock), publication: new PublicationService(catalog, proposals, transactions, uow, clock),
+    discovery: new DiscoveryService(catalog, transactions), actionProposals: new ActionProposalService(catalog, proposals, clock),
+    actionCommit: new ActionCommitService(catalog, proposals, transactions, uow, clock),
+    amendments: new ReservationAmendmentService(catalog, proposals, transactions, clock), audit: auditService,
+  });
   await http.register(linkTokenRoutes, { prefix: '/api/auth/link-token', controller: new LinkTokenController(pairing) });
   await http.register(mcpRoutes, { controller: new McpController(service), service });
   await http.listen({ port: 0, host: '127.0.0.1' });
   const base = http.listeningOrigin;
   const clients: Client[] = [];
-  return { app: http, sessions, tokens, pairing, service, base,
+  return { app: http, sessions, tokens, pairing, service, storage, base,
     async connect(path = '/mcp') {
       const client = new Client({ name: 'test', version: '1.0' });
       let notifyOpen!: () => void;

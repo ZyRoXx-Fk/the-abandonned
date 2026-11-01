@@ -19,7 +19,8 @@ test('real SDK transports isolate identities, reject foreign IDs and reconnect u
   assert.equal((await a.client.callTool({ name: 'pair_session', arguments: { token: second.token } })).isError, true);
   assert.notEqual((await b.client.callTool({ name: 'pair_session', arguments: { token: second.token } })).isError, true);
   const tools = await a.client.listTools();
-  assert.deepEqual(tools.tools.map(x => x.name), ['pair_session']);
+  assert.ok(tools.tools.some(x => x.name === 'pair_session'));
+  assert.ok(tools.tools.some(x => x.name === 'link_session'));
   const status = await (await fetch(h.base + '/mcp/status')).json();
   assert.deepEqual(Object.keys(status).sort(), ['activeSessions', 'status']);
   const id = a.transport.sessionId!;

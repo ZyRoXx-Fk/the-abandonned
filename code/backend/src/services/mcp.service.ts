@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { createRelayServer } from '../mcp/server-factory.js';
+import { createRelayServer, type RelayDomainServices } from '../mcp/server-factory.js';
 import { McpSessionManager } from '../utils/managers/mcp-session.manager.js';
 import { LinkTokenService } from './link-token.service.js';
 interface SessionTransport { transport: StreamableHTTPServerTransport; server: McpServer }
@@ -13,7 +13,7 @@ export class McpService {
   private readonly pending = new Set<SessionTransport>();
   private closed = false;
   private readonly requestContext = new AsyncLocalStorage<ServerResponse>();
-  constructor(private readonly sessions: McpSessionManager, private readonly pairing: LinkTokenService) {}
+  constructor(private readonly sessions: McpSessionManager, private readonly pairing: LinkTokenService, private readonly domain: RelayDomainServices) {}
   async handleRequest(req: IncomingMessage, res: ServerResponse, body?: unknown): Promise<void> {
     await this.cleanup();
     if (this.closed) { res.writeHead(503).end(); return; }
@@ -47,7 +47,7 @@ export class McpService {
       },
       onsessionclosed: async sessionId => { await this.remove(sessionId); },
     });
-    const server = createRelayServer({ pairing: this.pairing, sessions: this.sessions });
+    const server = createRelayServer({ ...this.domain, pairing: this.pairing, sessions: this.sessions });
     const entry = { transport, server };
     this.pending.add(entry);
     res.once('finish', () => { if (id && res.statusCode >= 500) void this.remove(id); });

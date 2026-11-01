@@ -1,3 +1,15 @@
+import { BusinessDraftService } from './services/business-draft.service.js';
+import { PublicationService } from './services/publication.service.js';
+import { DiscoveryService } from './services/discovery.service.js';
+import { ActionProposalService } from './services/action-proposal.service.js';
+import { ActionCommitService } from './services/action-commit.service.js';
+import { ReservationAmendmentService } from './services/reservation-amendment.service.js';
+import { auditService } from './services/audit.service.js';
+import mongoose from 'mongoose';
+import { MongoCatalogRepository } from './repositories/catalog.repository.js';
+import { MongoProposalRepository } from './repositories/proposal.repository.js';
+import { MongoTransactionRepository } from './repositories/transaction.repository.js';
+import { MongoUnitOfWork } from './repositories/unit-of-work.js';
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
@@ -48,7 +60,16 @@ export async function buildApp() {
   await app.register(authRoutes, { prefix: "/api/auth" });
   const sessions = new McpSessionManager();
   const pairing = new LinkTokenService(new LinkTokenRepository(), sessions);
-  const mcp = new McpService(sessions, pairing);
+  const catalog = new MongoCatalogRepository(mongoose.connection);
+  const proposals = new MongoProposalRepository(mongoose.connection);
+  const transactions = new MongoTransactionRepository(mongoose.connection);
+  const uow = new MongoUnitOfWork(mongoose.connection);
+  const mcp = new McpService(sessions, pairing, {
+    drafts: new BusinessDraftService(catalog), publication: new PublicationService(catalog, proposals, transactions, uow),
+    discovery: new DiscoveryService(catalog, transactions), actionProposals: new ActionProposalService(catalog, proposals),
+    actionCommit: new ActionCommitService(catalog, proposals, transactions, uow),
+    amendments: new ReservationAmendmentService(catalog, proposals, transactions), audit: auditService,
+  });
   await app.register(linkTokenRoutes, { prefix: "/api/auth/link-token", controller: new LinkTokenController(pairing) });
   await app.register(mcpRoutes, { controller: new McpController(mcp), service: mcp });
 

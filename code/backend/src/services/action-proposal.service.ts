@@ -164,7 +164,7 @@ export class ActionProposalService {
     const proposal = await this.proposals.get(proposalId);
     if (!proposal) throw new RelayError('NOT_FOUND', 'Proposal not found.');
     if (proposal.principal.role !== 'client' || proposal.principal.userId !== client.userId
-      || !['order', 'restaurant_booking', 'hotel_booking'].includes(proposal.kind)) throw new RelayError('FORBIDDEN', 'Customer proposal access denied.');
+      || !['order', 'restaurant_booking', 'hotel_booking', 'reservation_amendment'].includes(proposal.kind)) throw new RelayError('FORBIDDEN', 'Customer proposal access denied.');
     return viewOf(proposal);
   }
 }

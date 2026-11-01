@@ -12,7 +12,7 @@ export class LinkTokenService {
     await this.tokens.replace(this.hash(token), principal, expiresAt);
     return { token, expiresAt, principal: { ...principal } };
   }
-  async consumeForSession(token: string, sessionId: string): Promise<Principal> {
+  async consumeForSession(token: string, sessionId: string, expectedRole?: Principal['role']): Promise<Principal> {
     this.cleanup();
     const session = this.sessions.getSession(sessionId);
     if (!session) throw new BadRequest('Live session required');
@@ -29,7 +29,7 @@ export class LinkTokenService {
       bucket.count++;
       return bucket;
     });
-    const result = await this.consume(token, sessionId);
+    const result = await this.consume(token, sessionId, expectedRole);
     for (const bucket of reservations) bucket.count--;
     return result;
   }
@@ -38,7 +38,7 @@ export class LinkTokenService {
       if (bucket.until <= this.clock().getTime() || (key.startsWith('session:') && !this.sessions.getSession(key.slice(8)))) this.failures.delete(key);
     }
   }
-  private async consume(token: string, sessionId: string): Promise<Principal> {
+  private async consume(token: string, sessionId: string, expectedRole?: Principal['role']): Promise<Principal> {
     // Synchronous reservation precedes all I/O: competing codes cannot switch this session.
     const session = this.sessions.beginPairing(sessionId);
     const hash = this.hash(token);
@@ -47,6 +47,7 @@ export class LinkTokenService {
       const principal = await this.tokens.consume(hash, this.clock());
       if (!principal) throw new BadRequest('Invalid or expired pairing code');
       consumed = true;
+      if (expectedRole && principal.role !== expectedRole) throw new BadRequest('Role not permitted');
       this.sessions.bind(session, principal);
       return { ...principal };
     } catch (error) {
