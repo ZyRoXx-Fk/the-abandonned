@@ -1,0 +1,15 @@
+**
+!package.json
+!pnpm-lock.yaml
+!astro.config.mjs
+!tsconfig.json
+!src/
+!src/**
+!public/
+!public/**
+!tests/
+!tests/**
+!docker/
+!docker/**
+**/.env
+**/.env.*
