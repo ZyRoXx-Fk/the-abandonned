@@ -1,3 +1,21 @@
+# Local transactional storage fixture (run these commands from code/backend).
+# Start MongoDB 8:
+#   docker compose -f compose.relay-test.yaml up -d --wait
+# The ping healthcheck below proves only that mongod responds, NOT that transactions
+# are ready. Initialize the replica set once per fresh container/data directory:
+#   docker compose -f compose.relay-test.yaml exec -T relay-mongo mongosh --quiet --port 27018 --eval 'rs.initiate({_id:"relay-rs",members:[{_id:0,host:"localhost:27018"}]})'
+# Wait up to 60 seconds for the primary; do not run tests if this command fails:
+#   docker compose -f compose.relay-test.yaml exec -T relay-mongo mongosh --quiet --port 27018 --eval 'assert.soon(() => db.hello().isWritablePrimary, "relay-rs primary not ready", 60000, 1000)'
+# Host-run tests require this explicit disposable base database (the harness adds
+# a unique suffix and drops only that suffixed database). No MONGODB_URI fallback:
+#   TEST_MONGODB_URI='mongodb://127.0.0.1:27018/relay_test?replicaSet=relay-rs&directConnection=true' NODE_ENV=test node --import tsx --test --test-reporter=tap --test-timeout=60000 tests/relay-storage.test.ts
+# For the integration script, export the same TEST_MONGODB_URI, then run:
+#   pnpm test:integration
+# Integration also starts a separate standalone MongoDB 8 negative-check fixture
+# via Docker (or TEST_MONGOD_BINARY); it must reject transactional writes.
+# Atlas alternative: explicitly set TEST_MONGODB_URI to a disposable relay_test
+# database on a transaction-capable MongoDB 8 cluster (see .env.example). Never use
+# an application database. Replica-set initialization above is local-only.
 services:
   relay-mongo:
     image: mongo:8.0

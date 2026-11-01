@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { RelayError } from "../src/utils/relay-error.js";
 import { proposalRecordSchema } from "../src/schemas/action.schema.js";
+import { inventoryKeyForInput } from "../src/repositories/catalog.repository.js";
 import { businessDraftSchema } from "../src/schemas/catalog.schema.js";
 import { buildMongoHarness } from "./helpers/relay-mongo.js";
 
@@ -456,3 +457,95 @@ test("reservation amendment rejects business or hotel room-type changes", async 
     },
   );
 });
+
+test("write-only UnitOfWork transaction returns undefined and persists exactly once", { timeout: 60_000 }, async (t) => {
+  const harness = await buildMongoHarness();
+  t.after(() => harness.close());
+  await harness.uow.run((tx) => harness.catalog.publish(publishedHotelDraft, tx));
+  const key = inventoryKeyForInput(publishedHotelDraft.businessId, publishedHotelDraft.inventoryEdits[0]!);
+  const before = await harness.catalog.getInventory([key]);
+
+  const result = await harness.uow.run(async (tx) => {
+    await harness.catalog.applyAllocations([{ key, delta: 1 }], tx);
+  });
+
+  assert.equal(result, undefined);
+  assert.deepEqual(await harness.catalog.getInventory([key]), [
+    { ...before[0], allocatedCapacity: 1 },
+  ]);
+});
+
+const variantDraft = businessDraftSchema.parse({
+  ...restaurantDraft,
+  inventoryEdits: [{
+    kind: "sellable_variant",
+    id: "stock_fondue",
+    offeringId: "fondue",
+    variantId: "classic",
+    remainingUnits: 10,
+  }],
+});
+
+for (const draft of [variantDraft, { ...restaurantDraft, inventoryEdits: restaurantDraft.inventoryEdits.slice(0, 1) }, publishedHotelDraft]) {
+  const inventory = draft.inventoryEdits[0]!;
+  for (const revisionCase of ["missing", "stale", "matching"] as const) {
+    test(`publication ${inventory.kind} ${revisionCase} expectedRevision preserves inventory isolation`, { timeout: 60_000 }, async (t) => {
+      const harness = await buildMongoHarness();
+      t.after(() => harness.close());
+      const key = inventoryKeyForInput(draft.businessId, inventory);
+      // Creation intentionally needs no expectedRevision; advance through a valid owner edit.
+      await harness.uow.run((tx) => harness.catalog.publish(draft, tx));
+      const updatedInventory = inventory.kind === "sellable_variant"
+        ? { ...inventory, remainingUnits: inventory.remainingUnits + 1 }
+        : inventory.kind === "restaurant_slot"
+          ? { ...inventory, totalSeats: inventory.totalSeats + 1 }
+          : { ...inventory, totalRooms: inventory.totalRooms + 1 };
+      const currentDraft = {
+        ...draft,
+        revision: 1,
+        inventoryEdits: [{ ...updatedInventory, expectedRevision: 0 }],
+      };
+      await harness.uow.run((tx) => harness.catalog.publish(currentDraft, tx));
+      await harness.uow.run(async (tx) => {
+        await harness.catalog.applyAllocations([{ key, delta: 1 }], tx);
+        return true;
+      });
+      const before = await harness.catalog.getInventory([key]);
+      assert.equal(before[0]?.revision, 1);
+      const publishedBefore = await harness.catalog.getPublished(draft.businessId);
+      const edit = {
+        ...updatedInventory,
+        metadata: [{ key: "note", value: "Owner edit" }],
+        ...(revisionCase === "missing" ? {} : { expectedRevision: revisionCase === "stale" ? 0 : 1 }),
+      };
+      const nextDraft = {
+        ...currentDraft,
+        revision: 2,
+        profile: { ...currentDraft.profile, description: "New published description" },
+        inventoryEdits: [edit],
+      };
+      const publish = () => harness.uow.run((tx) => harness.catalog.publish(nextDraft, tx));
+
+      if (revisionCase !== "matching") {
+        await assert.rejects(publish, (error: unknown) => {
+          assert.ok(error instanceof RelayError);
+          assert.equal(error.code, "STALE_REVISION");
+          return true;
+        });
+        assert.deepEqual(await harness.catalog.getInventory([key]), before);
+        assert.deepEqual(await harness.catalog.getPublished(draft.businessId), publishedBefore);
+      } else {
+        await publish();
+        const after = await harness.catalog.getInventory([key]);
+        assert.equal(after[0]?.revision, 2);
+        assert.deepEqual(after[0]?.metadata, edit.metadata);
+        if (after[0]?.kind === "sellable_variant") {
+          assert.equal(after[0].remainingUnits, updatedInventory.kind === "sellable_variant" ? updatedInventory.remainingUnits : undefined);
+        } else {
+          assert.equal(after[0]?.allocatedCapacity, 1);
+        }
+        assert.equal((await harness.catalog.getPublished(draft.businessId))?.revision, 2);
+      }
+    });
+  }
+}

@@ -483,7 +483,8 @@ export class MongoCatalogRepository implements CatalogRepository {
       const key = inventoryKeyForInput(parsedDraft.businessId, inventory);
       publishedKeys.add(key);
       const existing = existingInventory.get(key);
-      if (inventory.expectedRevision !== undefined && inventory.expectedRevision !== (existing?.revision ?? null)) {
+      if ((existing && inventory.expectedRevision !== existing.revision)
+        || (!existing && inventory.expectedRevision !== undefined)) {
         throw new RelayError("STALE_REVISION", `Inventory revision mismatch for ${key}`);
       }
 

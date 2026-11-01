@@ -32,14 +32,7 @@ export class MongoUnitOfWork implements UnitOfWork {
     const session = await this.connection.startSession();
 
     try {
-      let result: T | undefined;
-      await session.withTransaction(async () => {
-        result = await work(session);
-      });
-      if (result === undefined) {
-        throw new Error("Transaction completed without returning a result");
-      }
-      return result;
+      return await session.withTransaction(() => work(session));
     } finally {
       await session.endSession();
     }
