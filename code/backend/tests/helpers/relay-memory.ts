@@ -110,5 +110,6 @@ export function createRelayMemory(initialActions: MemoryAction[] = []) {
     },
     async appendEvent(principal, proposal, result) { events.push(copy({ principal, proposal, result })); },
   };
-  return { catalog, proposals: proposalPort, transactions, uow };
+  return { catalog, proposals: proposalPort, transactions, uow,
+    inspect: () => copy({ inventory: [...inventory.values()], proposals: [...proposals.values()], actions, events, results: [...results.values()] }) };
 }

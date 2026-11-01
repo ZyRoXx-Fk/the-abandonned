@@ -165,7 +165,8 @@ const restaurantBookingSummarySchema = z.object({
   startTime: timeOfDaySchema,
   endTime: timeOfDaySchema,
   partySize: positiveSafeIntegerSchema.max(100),
-  policies: z.array(policySchema).max(20),
+  // Up to 20 common policies plus the separately published reservation policy.
+  policies: z.array(policySchema).max(21),
   paymentNotice: paymentNoticeSchema,
 }).strict().superRefine((value, ctx) => {
   if (value.endTime <= value.startTime) {
